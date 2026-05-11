@@ -48,12 +48,12 @@ class HelcimController extends Controller
                 'test' => (int) env('HELCIM_TEST_MODE', 0),
                 'paymentType' => 'purchase',
                 'terminalOrderId' => $invoiceNum,
+                'invoiceNumber' => $invoiceNum,
                 'amount' => (float) $request->amount,
                 'currency' => 'USD',
                 'allowPartial' => 0,
                 'hasConvenienceFee' => 0,
                 'description' => "Payment for {$invoiceNum}: " . substr($request->description, 0, 50),
-                'postPaymentRedirectUrl' => "https://your-frontend.com/leads/{$lead->id}?payment=success&inv={$invoiceNum}",
             ]);
 
             $result = $response->json();
