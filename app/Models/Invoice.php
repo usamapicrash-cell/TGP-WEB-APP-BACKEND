@@ -11,6 +11,7 @@ class Invoice extends Model
     protected $fillable = [
         'lead_id',
         'invoice_number',
+        'helcim_invoice_number',
         'total_amount',
         'paid_amount',
         'status',

@@ -48,12 +48,11 @@ class HelcimController extends Controller
                 'test' => (int) env('HELCIM_TEST_MODE', 0),
                 'paymentType' => 'purchase',
                 'terminalOrderId' => $invoiceNum,
-                'invoiceNumber' => $invoiceNum,
                 'amount' => (float) $request->amount,
                 'currency' => 'USD',
                 'allowPartial' => 0,
                 'hasConvenienceFee' => 0,
-                'description' => "Payment for {$invoiceNum}: " . substr($request->description, 0, 50),
+                'description' => "Invoice:{$invoiceNum}",
             ]);
 
             $result = $response->json();
@@ -65,6 +64,7 @@ class HelcimController extends Controller
                 $invoice = Invoice::create([
                     'lead_id' => $lead->id,
                     'invoice_number' => $invoiceNum,
+                    'helcim_invoice_number' => $result['invoiceNumber'] ?? null,
                     'total_amount' => $request->amount,
                     'paid_amount' => 0,
                     'status' => 'DUE',
@@ -324,21 +324,27 @@ class HelcimController extends Controller
         }
 
         // Invoice number
-        $invoiceNumber = $transaction['terminalOrderId']
-            ?? $transaction['invoiceNumber']
-            ?? null;
+        $invoiceNumber = null;
 
-        if (!$invoiceNumber) {
+        // 1. terminalOrderId
+        if (!empty($transaction['terminalOrderId'])) {
 
-            Log::warning('Invoice number missing.');
-
-            return response()->json([
-                'status' => 'invoice_missing'
-            ], 200);
+            $invoiceNumber = $transaction['terminalOrderId'];
         }
 
-        $invoice = Invoice::where('invoice_number', $invoiceNumber)->first();
+        // 3. Helcim invoice fallback
+        if (!$invoiceNumber && !empty($transaction['invoiceNumber'])) {
 
+            $invoiceNumber = $transaction['invoiceNumber'];
+        }
+
+        Log::info('Resolved Invoice Number', [
+            'invoice' => $invoiceNumber
+        ]);
+
+        $invoice = Invoice::where('helcim_invoice_number', $invoiceNumber)
+            ->orWhere('invoice_number', $invoiceNumber)
+            ->first();
         if (!$invoice) {
 
             Log::warning('Invoice not found', [
