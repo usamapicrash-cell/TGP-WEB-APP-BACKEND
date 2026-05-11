@@ -269,45 +269,56 @@ class HelcimController extends Controller
     }
 
     public function handleWebhook(Request $request)
-    {
-        $payload = $request->all();
-        Log::info('Helcim Webhook Received', $payload);
+{
+    $payload = $request->all();
+    Log::info('Helcim Webhook Received', $payload);
 
-        if (empty($payload)) {
-            return response()->json(['message' => 'Webhook Endpoint Active'], 200);
-        }
-        // Helcim Pay webhook structure check
-        $status = $payload['response']['status'] ?? $payload['data']['status'] ?? null;
+    if (empty($payload)) {
+        return response()->json(['message' => 'Webhook Endpoint Active'], 200);
+    }
+
+    // Helcim ke data object ko pakrein
+    $data = $payload['data'] ?? [];
+    
+    // Status check karein (Helcim 'approved' ya 'completed' bhejta hai)
+    $status = $data['status'] ?? ($payload['response']['status'] ?? null);
+    
+    if ($status && (strtolower($status) === 'approved' || strtolower($status) === 'completed')) {
         
-        if (strtolower($status) === 'approved' || strtolower($status) === 'completed') {
-            
-            // Agar aapne terminalOrderId bheja tha to yahan milega
-            $invoiceNumber = $payload['data']['terminalOrderId'] ?? null;
-            $transactionId = $payload['data']['transactionId'] ?? $payload['data']['cardToken'] ?? null;
-            $amount = $payload['data']['amount'] ?? 0;
+        // TerminalOrderId hi hamara Invoice Number hai
+        $invoiceNumber = $data['terminalOrderId'] ?? null;
+        $transactionId = $data['transactionId'] ?? $payload['id'] ?? null;
+        $amount = $data['amount'] ?? 0;
 
-            if ($invoiceNumber) {
-                $invoice = Invoice::where('invoice_number', $invoiceNumber)->first();
+        if ($invoiceNumber) {
+            $invoice = Invoice::where('invoice_number', $invoiceNumber)->first();
 
-                if ($invoice && $invoice->status !== 'PAID') {
-                    DB::transaction(function () use ($invoice, $transactionId, $amount) {
-                        $invoice->update([
-                            'status' => 'PAID',
-                            'paid_amount' => $amount
-                        ]);
+            // Check karein ke invoice mil gayi aur wo pehle se paid nahi hai
+            if ($invoice && $invoice->status !== 'PAID') {
+                DB::transaction(function () use ($invoice, $transactionId, $amount) {
+                    // 1. Invoice status update
+                    $invoice->update([
+                        'status' => 'PAID',
+                        'paid_amount' => $amount
+                    ]);
 
-                        $invoice->payments()->create([
-                            'lead_id' => $invoice->lead_id,
-                            'amount' => $amount,
-                            'payment_method' => 'Helcim',
-                            'transaction_id' => $transactionId,
-                            'payment_date' => now(),
-                        ]);
-                    });
-                    return response()->json(['status' => 'success'], 200);
-                }
+                    // 2. Payment record create
+                    $invoice->payments()->create([
+                        'lead_id' => $invoice->lead_id,
+                        'amount' => $amount,
+                        'payment_method' => 'Helcim',
+                        'transaction_id' => $transactionId,
+                        'payment_date' => now(),
+                    ]);
+                });
+
+                Log::info("Webhook Success: Invoice #{$invoiceNumber} marked as PAID.");
+                return response()->json(['status' => 'success'], 200);
             }
         }
-        return response()->json(['status' => 'ignored'], 200);
     }
+
+    Log::warning("Webhook Ignored: Condition not met or Invoice not found.", ['payload' => $payload]);
+    return response()->json(['status' => 'ignored'], 200);
+}
 }
