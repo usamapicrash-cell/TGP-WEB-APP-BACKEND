@@ -56,7 +56,9 @@ class HelcimController extends Controller
             ]);
 
             $result = $response->json();
-
+            Log::warning('result found', [
+                'result' => $result
+            ]);
             if ($response->successful() && isset($result['checkoutToken'])) {
                 $finalUrl = "https://secure.helcim.app/helcim-pay/" . $result['checkoutToken'];
 
