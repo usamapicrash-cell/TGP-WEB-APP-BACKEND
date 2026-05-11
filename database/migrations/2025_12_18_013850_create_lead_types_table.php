@@ -1,0 +1,24 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration {
+    public function up(): void
+    {
+        Schema::create('lead_types', function (Blueprint $table) {
+            $table->id();
+            $table->string('name'); // Store Front, Residential etc
+            $table->foreignId('created_by')
+                ->constrained('users')
+                ->onDelete('cascade'); // admin id
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('lead_types');
+    }
+};
