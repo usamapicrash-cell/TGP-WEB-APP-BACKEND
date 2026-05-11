@@ -271,54 +271,148 @@ class HelcimController extends Controller
     public function handleWebhook(Request $request)
 {
     $payload = $request->all();
+
     Log::info('Helcim Webhook Received', $payload);
 
-    if (empty($payload)) {
-        return response()->json(['message' => 'Webhook Endpoint Active'], 200);
-    }
+    try {
 
-    // Helcim ke data object ko pakrein
-    $data = $payload['data'] ?? [];
-    
-    // Status check karein (Helcim 'approved' ya 'completed' bhejta hai)
-    $status = $data['status'] ?? ($payload['response']['status'] ?? null);
-    
-    if ($status && (strtolower($status) === 'approved' || strtolower($status) === 'completed')) {
-        
-        // TerminalOrderId hi hamara Invoice Number hai
-        $invoiceNumber = $data['terminalOrderId'] ?? null;
-        $transactionId = $data['transactionId'] ?? $payload['id'] ?? null;
-        $amount = $data['amount'] ?? 0;
+        // Webhook se transaction ID lo
+        $transactionId = $payload['id'] ?? null;
 
-        if ($invoiceNumber) {
-            $invoice = Invoice::where('invoice_number', $invoiceNumber)->first();
+        if (!$transactionId) {
 
-            // Check karein ke invoice mil gayi aur wo pehle se paid nahi hai
-            if ($invoice && $invoice->status !== 'PAID') {
-                DB::transaction(function () use ($invoice, $transactionId, $amount) {
-                    // 1. Invoice status update
-                    $invoice->update([
-                        'status' => 'PAID',
-                        'paid_amount' => $amount
-                    ]);
+            Log::warning('No transaction ID found.');
 
-                    // 2. Payment record create
-                    $invoice->payments()->create([
-                        'lead_id' => $invoice->lead_id,
-                        'amount' => $amount,
-                        'payment_method' => 'Helcim',
-                        'transaction_id' => $transactionId,
-                        'payment_date' => now(),
-                    ]);
-                });
-
-                Log::info("Webhook Success: Invoice #{$invoiceNumber} marked as PAID.");
-                return response()->json(['status' => 'success'], 200);
-            }
+            return response()->json([
+                'status' => 'no_transaction_id'
+            ], 200);
         }
-    }
 
-    Log::warning("Webhook Ignored: Condition not met or Invoice not found.", ['payload' => $payload]);
-    return response()->json(['status' => 'ignored'], 200);
+        // Helcim API se full transaction details fetch karo
+        $response = Http::withHeaders([
+            'api-token' => env('HELCIM_KEY'),
+            'Accept' => 'application/json',
+        ])->get("https://api.helcim.com/v2/card-transactions/{$transactionId}");
+
+        if (!$response->successful()) {
+
+            Log::error('Failed to fetch transaction details', [
+                'response' => $response->body()
+            ]);
+
+            return response()->json([
+                'status' => 'api_failed'
+            ], 200);
+        }
+
+        $transaction = $response->json();
+
+        Log::info('Helcim Transaction Details', $transaction);
+
+        // Status check
+        $status = strtolower($transaction['status'] ?? '');
+
+        if (!in_array($status, ['approved', 'completed'])) {
+
+            Log::warning('Transaction not approved', [
+                'status' => $status
+            ]);
+
+            return response()->json([
+                'status' => 'not_approved'
+            ], 200);
+        }
+
+        // Invoice number
+        $invoiceNumber = $transaction['terminalOrderId']
+            ?? $transaction['invoiceNumber']
+            ?? null;
+
+        if (!$invoiceNumber) {
+
+            Log::warning('Invoice number missing.');
+
+            return response()->json([
+                'status' => 'invoice_missing'
+            ], 200);
+        }
+
+        $invoice = Invoice::where('invoice_number', $invoiceNumber)->first();
+
+        if (!$invoice) {
+
+            Log::warning('Invoice not found', [
+                'invoice' => $invoiceNumber
+            ]);
+
+            return response()->json([
+                'status' => 'invoice_not_found'
+            ], 200);
+        }
+
+        // Duplicate protection
+        if ($invoice->status === 'PAID') {
+
+            Log::info('Invoice already paid', [
+                'invoice' => $invoiceNumber
+            ]);
+
+            return response()->json([
+                'status' => 'already_paid'
+            ], 200);
+        }
+
+        $amount = $transaction['amount'] ?? $invoice->total_amount;
+
+        DB::transaction(function () use (
+            $invoice,
+            $amount,
+            $transactionId
+        ) {
+
+            // Invoice update
+            $invoice->update([
+                'status' => 'PAID',
+                'paid_amount' => $amount
+            ]);
+
+            // Payment create
+            $invoice->payments()->create([
+                'lead_id' => $invoice->lead_id,
+                'amount' => $amount,
+                'payment_method' => 'Helcim',
+                'transaction_id' => $transactionId,
+                'payment_date' => now(),
+            ]);
+        });
+
+        // Activity log
+        if ($invoice->lead && $invoice->lead->gjob) {
+
+            $invoice->lead->gjob->activities()->create([
+                'user_id' => null,
+                'action' => 'Helcim Payment Received',
+                'description' => "Invoice {$invoiceNumber} paid successfully via Helcim.",
+            ]);
+        }
+
+        Log::info("Webhook Success: Invoice {$invoiceNumber} marked as PAID.");
+
+        return response()->json([
+            'status' => 'success'
+        ], 200);
+
+    } catch (\Exception $e) {
+
+        Log::error('Webhook Exception', [
+            'message' => $e->getMessage(),
+            'line' => $e->getLine(),
+        ]);
+
+        return response()->json([
+            'status' => 'error',
+            'message' => $e->getMessage()
+        ], 500);
+    }
 }
 }
