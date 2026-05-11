@@ -16,7 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // 1. CSRF se Helcim Webhook ko exclude karein
         $middleware->validateCsrfTokens(except: [
-            'api/helcim/webhook', 
+            'api/payment/webhook', 
             'api/website/lead'
         ]);
 

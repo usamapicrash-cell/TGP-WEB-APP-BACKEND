@@ -23,12 +23,10 @@ use App\Http\Controllers\Api\{
     AppointmentController,
     NotificationController,
     EmailController,
-
 };
-use App\Http\Controllers\HelcimWebhookController;
 use Illuminate\Http\Request;
 
-Route::post('/helcim/webhook', [HelcimWebhookController::class, 'handleWebhook']);
+Route::post('/payment/webhook', [HelcimController::class, 'handleWebhook']);
 Route::post('/website/lead', [LeadController::class, 'web_store']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::middleware('auth:sanctum')->group(function () {
