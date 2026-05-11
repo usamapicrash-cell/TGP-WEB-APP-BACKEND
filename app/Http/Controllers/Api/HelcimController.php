@@ -273,6 +273,9 @@ class HelcimController extends Controller
         $payload = $request->all();
         Log::info('Helcim Webhook Received', $payload);
 
+        if (empty($payload)) {
+            return response()->json(['message' => 'Webhook Endpoint Active'], 200);
+        }
         // Helcim Pay webhook structure check
         $status = $payload['response']['status'] ?? $payload['data']['status'] ?? null;
         
