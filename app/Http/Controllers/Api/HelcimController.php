@@ -50,9 +50,10 @@ class HelcimController extends Controller
                 'terminalOrderId' => $invoiceNum,
                 'amount' => (float) $request->amount,
                 'currency' => 'USD',
-                'allowPartial' => 0,
-                'hasConvenienceFee' => 0,
                 'description' => "Invoice:{$invoiceNum}",
+                'customData' => [
+                    'my_invoice_id' => $invoiceNum, 
+                ],
             ]);
 
             $result = $response->json();

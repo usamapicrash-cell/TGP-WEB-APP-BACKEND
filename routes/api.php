@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\{
     AppointmentController,
     NotificationController,
     EmailController,
+    SmsCommunicationController,
 };
 use Illuminate\Http\Request;
 
@@ -172,7 +173,25 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/leads/{leadId}/activities', [LeadActivityController::class, 'index']);
         Route::post('/leads/{leadId}/activities', [LeadActivityController::class, 'store']);
 
+
+        Route::prefix('communications')->group(function () {
+            Route::get('/voice-token', [SmsCommunicationController::class, 'getVoiceToken']);
+            Route::get('/sms-history', [SmsCommunicationController::class, 'getHistory']);
+            Route::post('/send-sms', [SmsCommunicationController::class, 'sendSms']);
+        });
+
+
+
     });
+
+
 
     
 });
+        // Yeh route Vonage Webhook ke liye hai jahan customer ke reply ayenge
+        Route::post('/communications/vonage/answer', [SmsCommunicationController::class, 'voiceAnswerWebhook']);
+        Route::post('/communications/vonage/event', [SmsCommunicationController::class, 'voiceEventWebhook']);
+        
+        Route::post('/vonage/webhook-sms', [SmsCommunicationController::class, 'handleInboundWebhook']);
+
+        Route::post('/communications/create-vonage-user', [SmsCommunicationController::class, 'createVonageUser']);
