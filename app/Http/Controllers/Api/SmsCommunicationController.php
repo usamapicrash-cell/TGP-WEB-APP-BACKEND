@@ -285,8 +285,6 @@ public function createVonageUser(Request $request) {
 public function voiceAnswerWebhook(Request $request) {
     \Log::info('Vonage Answer Webhook Hit', $request->all());
 
-    // custom_data mein wo number aayega jo aapne NexmoClient ke callServer() 
-    // ko diya tha (jaisa CallingContext.jsx mein formattedNumber bhej rahe hain)
     $toNumber = $request->input('custom_data.number') 
                 ?? $request->input('to') 
                 ?? null;
@@ -298,10 +296,16 @@ public function voiceAnswerWebhook(Request $request) {
         ]);
     }
 
+    // Vonage virtual number dynamically .env se uthein, jo numerical format me ho
+    // Agar custom phone number set nahi hai, toh default numeric sender use karein, text nahi.
+    $fromNumber = config('services.vonage.voice_from') 
+                  ?? config('services.vonage.sms_from') 
+                  ?? '13159071112'; // Apka actual virtual number yahan fallback me rakhein
+
     return response()->json([
         [
             "action" => "connect",
-            "from" => config('services.vonage.sms_from', 'Glazier'), // aapka Vonage number/sender ID
+            "from" => $fromNumber, 
             "endpoint" => [
                 [
                     "type" => "phone",

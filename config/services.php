@@ -44,7 +44,7 @@ return [
         'secret' => env('VONAGE_SECRET'),
         'application_id' => env('VONAGE_APPLICATION_ID'),
         'private_key' => env('VONAGE_PRIVATE_KEY_PATH', 'storage/vonage_private.key'),
-        'sms_from' => env('VONAGE_SMS_FROM', '18335551234'), 
+        'sms_from' => env('VONAGE_SMS_FROM', '13159071112'), 
     ],
 
 ];
