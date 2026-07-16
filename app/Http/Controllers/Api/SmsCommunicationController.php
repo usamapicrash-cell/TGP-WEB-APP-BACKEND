@@ -316,8 +316,22 @@ public function voiceAnswerWebhook(Request $request) {
     ]);
 }
 
-public function voiceEventWebhook(Request $request) {
-    \Log::info('Vonage Event Webhook', $request->all());
-    return response()->json([], 200);
-}
+    public function voiceEventWebhook(Request $request) {
+        $data = $request->all();
+        \Log::info('Vonage Event Webhook', $data);
+
+        $status = $data['status'] ?? null;
+        $conversationUuid = $data['conversation_uuid'] ?? null;
+
+        // In status par humne React widget ko band karwana hai
+        $endStates = ['completed', 'busy', 'cancelled', 'timeout', 'rejected', 'failed'];
+
+        if ($conversationUuid && in_array($status, $endStates)) {
+            // Real-time Event trigger karein taake React ko signal jaye
+            event(new \App\Events\VonageCallEvent($conversationUuid, $status));
+            \Log::info("Broadcasted Call End Event for Conversation: {$conversationUuid} with status: {$status}");
+        }
+
+        return response()->json([], 200);
+    }
 }
