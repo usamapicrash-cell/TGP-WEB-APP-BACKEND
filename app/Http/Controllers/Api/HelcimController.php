@@ -52,38 +52,35 @@ class HelcimController extends Controller
                 'currency' => 'USD',
                 'description' => "Invoice:{$invoiceNum}",
                 'customData' => [
-                    'my_invoice_id' => $invoiceNum, 
+                    'my_invoice_number' => $invoiceNum,
                 ],
             ]);
 
             $result = $response->json();
-            Log::warning('result found', [
-                'result' => $result
-            ]);
-            if ($response->successful() && isset($result['checkoutToken'])) {
-                $finalUrl = "https://secure.helcim.app/helcim-pay/" . $result['checkoutToken'];
+            Log::info('Helcim Initialize Response', ['result' => $result]);
 
-                // 3. Database mein Invoice Create karein (With checkout_url for resending)
+            if ($response->successful() && isset($result['checkoutToken'])) {
+                $checkoutToken = $result['checkoutToken'];
+                $finalUrl = "https://secure.helcim.app/helcim-pay/" . $checkoutToken;
+
+                // 3. Database mein Invoice Create karein
                 $invoice = Invoice::create([
                     'lead_id' => $lead->id,
                     'invoice_number' => $invoiceNum,
                     'helcim_invoice_number' => $result['invoiceNumber'] ?? null,
-                    'helcim_checkout_token' => $result['checkoutToken'], // <-- Add this line
+                    'helcim_checkout_token' => $checkoutToken,
                     'total_amount' => $request->amount,
                     'paid_amount' => 0,
                     'status' => 'DUE',
                     'due_date' => now()->addDays(7),
                     'notes' => $request->description,
-                    'checkout_url' => $finalUrl, // Store link for resending
+                    'checkout_url' => $finalUrl,
                 ]);
 
                 if ($lead->email) {
                     $mailable = new SendPaymentLinkMail($invoice);
-                    
-                    // 1. Send Actual Email
                     Mail::to($lead->email)->send($mailable);
 
-                    // 2. Render HTML for Database Logging
                     $htmlBody = view('emails.payment_link', [
                         'invoice' => $invoice,
                         'clientName' => $lead->client_name,
@@ -91,7 +88,6 @@ class HelcimController extends Controller
                         'url' => $invoice->checkout_url
                     ])->render();
 
-                    // 3. Save to Emails Table
                     Email::create([
                         'sender'    => env('SENDER_EMAIL', 'sales@theglasspeople.com'),
                         'receiver'  => $lead->email,
@@ -104,7 +100,7 @@ class HelcimController extends Controller
 
                 if ($lead->gjob) {
                     $lead->gjob->activities()->create([
-                        'user_id'     => auth()->id(),
+                        'user_id'     => auth()->id() ?? 1,
                         'action'      => 'Payment Link Generated',
                         'description' => "Helcim payment link ({$invoiceNum}) generated for amount: $" . $request->amount,
                     ]);
@@ -114,7 +110,7 @@ class HelcimController extends Controller
                 return response()->json([
                     'success' => true,
                     'checkout_url' => $finalUrl,
-                    'checkout_token' => $result['checkoutToken'],
+                    'checkout_token' => $checkoutToken,
                     'invoice' => $invoice
                 ]);
             }
@@ -130,7 +126,6 @@ class HelcimController extends Controller
 
     public function recordManual(Request $request)
     {
-        // Ab invoice_id required nahi hai, balki lead_id chahiye
         $request->validate([
             'lead_id'        => 'required|exists:leads,id', 
             'amount'         => 'required|numeric|min:0.01',
@@ -142,7 +137,6 @@ class HelcimController extends Controller
         return DB::transaction(function () use ($request) {
             $lead = Lead::findOrFail($request->lead_id);
 
-            // 1. Incremental Invoice Number Logic (Same as Helcim)
             $lastInvoice = Invoice::where('invoice_number', 'LIKE', 'INV%')
                 ->latest('id')
                 ->first();
@@ -150,24 +144,21 @@ class HelcimController extends Controller
             $newNumber = $lastInvoice ? ((int) substr($lastInvoice->invoice_number, 3)) + 1 : 1;
             $invoiceNum = 'INV' . str_pad($newNumber, 5, '0', STR_PAD_LEFT);
 
-            // 2. Auto Create Invoice
             $invoice = Invoice::create([
                 'lead_id'        => $lead->id,
                 'invoice_number' => $invoiceNum,
-                'total_amount'   => $request->amount, // Manual payment mein hum assume kar rahe hain jitni payment utni invoice
+                'total_amount'   => $request->amount,
                 'paid_amount'    => $request->amount,
-                'status'         => 'PAID', // Kyunke payment sath hi ho rahi hai
+                'status'         => 'PAID',
                 'due_date'       => $request->payment_date,
                 'notes'          => $request->internal_notes ?? 'Auto-generated invoice for manual payment',
             ]);
 
-            // 3. Image Upload Logic
             $receiptPath = null;
             if ($request->hasFile('receipt')) {
                 $receiptPath = $request->file('receipt')->store('receipts', 'public');
             }
 
-            // 4. Attach Payment to this new Invoice
             $invoice->payments()->create([
                 'lead_id'        => $lead->id,
                 'amount'         => $request->amount,
@@ -178,10 +169,9 @@ class HelcimController extends Controller
                 'internal_notes' => $request->internal_notes,
             ]);
 
-            // 5. Activity Log
             if ($lead->gjob) {
                 $lead->gjob->activities()->create([
-                    'user_id'     => auth()->id(),
+                    'user_id'     => auth()->id() ?? 1,
                     'action'      => 'Manual Payment & Invoice Created',
                     'description' => "Manual payment of $" . $request->amount . " received. Auto-generated invoice: {$invoiceNum}.",
                 ]);
@@ -204,13 +194,12 @@ class HelcimController extends Controller
                 return response()->json(['message' => 'No Helcim link found for this invoice.'], 404);
             }
 
-           if ($invoice->lead && $invoice->lead->email) {
+            if ($invoice->lead && $invoice->lead->email) {
                 $lead = $invoice->lead;
                 $mailable = new SendPaymentLinkMail($invoice);
                 
                 Mail::to($lead->email)->send($mailable);
 
-                // Log the resent email
                 $htmlBody = view('emails.payment_link', [
                     'invoice' => $invoice,
                     'clientName' => $lead->client_name,
@@ -218,7 +207,7 @@ class HelcimController extends Controller
                     'url' => $invoice->checkout_url
                 ])->render();
 
-                 Email::create([
+                Email::create([
                     'sender'    => env('SENDER_EMAIL', 'sales@theglasspeople.com'),
                     'receiver'  => $lead->email,
                     'subject'   => "RESEND: Payment Request for Invoice #{$invoice->invoice_number}",
@@ -228,11 +217,9 @@ class HelcimController extends Controller
                 ]);
             }
 
-            // Yahan aap Email ya SMS logic daal sakte hain
-            // Filhal hum activity log record kar rahe hain aur success bhej rahe hain
             if ($invoice->lead && $invoice->lead->gjob) {
                 $invoice->lead->gjob->activities()->create([
-                    'user_id'     => auth()->id(),
+                    'user_id'     => auth()->id() ?? 1,
                     'action'      => 'Payment Link Resent',
                     'description' => "Payment link for {$invoice->invoice_number} was resent/accessed again.",
                 ]);
@@ -248,22 +235,17 @@ class HelcimController extends Controller
         }
     }
 
-   
     public function downloadPDF($id)
     {
         try {
             $invoice = Invoice::with(['lead', 'payments'])->findOrFail($id);
-            
-            // Lead ko alag variable mein nikaal lein
             $lead = $invoice->lead;
 
             if (!view()->exists('pdfs.invoice')) {
                 return response()->json(['error' => 'View not found'], 404);
             }
 
-            // Dono variables compact mein pass karein
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdfs.invoice', compact('invoice', 'lead'));
-            
             return $pdf->stream("invoice_{$invoice->invoice_number}.pdf");
 
         } catch (\Exception $e) {
@@ -272,108 +254,121 @@ class HelcimController extends Controller
         }
     }
 
- public function handleWebhook(Request $request)
-{
-    $payload = $request->all();
-    Log::info('Helcim Webhook Received', $payload);
+    public function handleWebhook(Request $request)
+    {
+        $payload = $request->all();
+        Log::info('Helcim Webhook Received', $payload);
 
-    try {
-        $transactionId = $payload['id'] ?? null;
-        if (!$transactionId) {
-            return response()->json(['status' => 'no_transaction_id'], 200);
-        }
-
-        // Fetch transaction details from Helcim API
-        $response = Http::withHeaders([
-            'api-token' => env('HELCIM_KEY'),
-            'Accept' => 'application/json',
-        ])->get("https://api.helcim.com/v2/card-transactions/{$transactionId}");
-
-        if (!$response->successful()) {
-            Log::error('Failed to fetch transaction details', ['response' => $response->body()]);
-            return response()->json(['status' => 'api_failed'], 200);
-        }
-
-        $transaction = $response->json();
-        Log::info('Helcim Transaction Details', $transaction);
-
-        $status = strtolower($transaction['status'] ?? '');
-        if (!in_array($status, ['approved', 'completed'])) {
-            return response()->json(['status' => 'not_approved'], 200);
-        }
-
-        $helcimInvNum = $transaction['invoiceNumber'] ?? null;
-        $terminalOrderId = $transaction['terminalOrderId'] ?? null;
-        $checkoutToken = $transaction['checkoutToken'] ?? null;
-
-        // Smart & Precise Invoice Matching
-        $invoice = Invoice::query()
-            ->when($checkoutToken, function ($q) use ($checkoutToken) {
-                $q->where('helcim_checkout_token', $checkoutToken)
-                  ->orWhere('checkout_url', 'LIKE', "%{$checkoutToken}%");
-            })
-            ->when($terminalOrderId, function ($q) use ($terminalOrderId) {
-                $q->orWhere('invoice_number', $terminalOrderId);
-            })
-            ->when($helcimInvNum, function ($q) use ($helcimInvNum) {
-                $q->orWhere('helcim_invoice_number', $helcimInvNum);
-            })
-            ->first();
-
-        if (!$invoice) {
-            Log::warning('Invoice not found for transaction', [
-                'transactionId' => $transactionId,
-                'invoiceNumber' => $helcimInvNum
-            ]);
-            return response()->json(['status' => 'invoice_not_found'], 200);
-        }
-
-        // Duplicate payment protection
-        if ($invoice->status === 'PAID') {
-            Log::info("Invoice {$invoice->invoice_number} is already paid.");
-            return response()->json(['status' => 'already_paid'], 200);
-        }
-
-        $amount = $transaction['amount'] ?? $invoice->total_amount;
-
-        DB::transaction(function () use ($invoice, $amount, $transactionId, $helcimInvNum) {
-            $invoice->update([
-                'status' => 'PAID',
-                'paid_amount' => $amount,
-                'helcim_invoice_number' => $helcimInvNum ?? $invoice->helcim_invoice_number
-            ]);
-
-            $invoice->payments()->create([
-                'lead_id' => $invoice->lead_id,
-                'amount' => $amount,
-                'payment_method' => 'Helcim',
-                'transaction_id' => $transactionId,
-                'payment_date' => now(),
-            ]);
-        });
-
-        // Safe Job Activity Logging (Prevents user_id null error)
         try {
-            if ($invoice->lead && $invoice->lead->gjob) {
-                // Agar auth user na ho toh System ID (1) use hoga
-                $userId = auth()->id() ?? 1; 
-
-                $invoice->lead->gjob->activities()->create([
-                    'user_id' => $userId,
-                    'action' => 'Helcim Payment Received',
-                    'description' => "Invoice {$invoice->invoice_number} paid successfully via Helcim.",
-                ]);
+            $transactionId = $payload['id'] ?? null;
+            if (!$transactionId) {
+                return response()->json(['status' => 'no_transaction_id'], 200);
             }
-        } catch (\Exception $logEx) {
-            Log::warning('Job Activity log failed', ['error' => $logEx->getMessage()]);
+
+            // 1. Fetch transaction details from Helcim API
+            $response = Http::withHeaders([
+                'api-token' => env('HELCIM_KEY'),
+                'Accept' => 'application/json',
+            ])->get("https://api.helcim.com/v2/card-transactions/{$transactionId}");
+
+            if (!$response->successful()) {
+                Log::error('Failed to fetch transaction details', ['response' => $response->body()]);
+                return response()->json(['status' => 'api_failed'], 200);
+            }
+
+            $transaction = $response->json();
+            Log::info('Helcim Transaction Details', $transaction);
+
+            $status = strtolower($transaction['status'] ?? '');
+            if (!in_array($status, ['approved', 'completed'])) {
+                return response()->json(['status' => 'not_approved'], 200);
+            }
+
+            $helcimInvNum = $transaction['invoiceNumber'] ?? null;
+            $terminalOrderId = $transaction['terminalOrderId'] ?? null;
+            $checkoutToken = $transaction['checkoutToken'] ?? null;
+            
+            // Custom Data check
+            $customInvNum = $transaction['customData']['my_invoice_number'] ?? null;
+
+            // Robust Lookup
+            $invoice = Invoice::query()
+                ->when($customInvNum, function ($q) use ($customInvNum) {
+                    $q->where('invoice_number', $customInvNum);
+                })
+                ->when($terminalOrderId, function ($q) use ($terminalOrderId) {
+                    $q->orWhere('invoice_number', $terminalOrderId);
+                })
+                ->when($checkoutToken, function ($q) use ($checkoutToken) {
+                    $q->orWhere('helcim_checkout_token', $checkoutToken)
+                      ->orWhere('checkout_url', 'LIKE', "%{$checkoutToken}%");
+                })
+                ->when($helcimInvNum, function ($q) use ($helcimInvNum) {
+                    $q->orWhere('helcim_invoice_number', $helcimInvNum);
+                })
+                ->first();
+
+            // Fallback: Check strictly by unpaid 'DUE' invoice matching exact amount & latest creation
+            if (!$invoice && isset($transaction['amount'])) {
+                $invoice = Invoice::where('status', 'DUE')
+                    ->where('total_amount', $transaction['amount'])
+                    ->latest('id')
+                    ->first();
+            }
+
+            if (!$invoice) {
+                Log::warning('Invoice not found for transaction', [
+                    'transactionId' => $transactionId,
+                    'invoiceNumber' => $helcimInvNum
+                ]);
+                return response()->json(['status' => 'invoice_not_found'], 200);
+            }
+
+            // Duplicate protection
+            if ($invoice->status === 'PAID') {
+                Log::info("Invoice {$invoice->invoice_number} is already paid.");
+                return response()->json(['status' => 'already_paid'], 200);
+            }
+
+            $amount = $transaction['amount'] ?? $invoice->total_amount;
+
+            DB::transaction(function () use ($invoice, $amount, $transactionId, $helcimInvNum) {
+                $invoice->update([
+                    'status' => 'PAID',
+                    'paid_amount' => $amount,
+                    'helcim_invoice_number' => $helcimInvNum ?? $invoice->helcim_invoice_number
+                ]);
+
+                $invoice->payments()->create([
+                    'lead_id' => $invoice->lead_id,
+                    'amount' => $amount,
+                    'payment_method' => 'Helcim',
+                    'transaction_id' => $transactionId,
+                    'payment_date' => now(),
+                ]);
+            });
+
+            // Safe Activity Log (No foreign key crashes)
+            try {
+                if ($invoice->lead && $invoice->lead->gjob) {
+                    $userId = auth()->id() ?? 1;
+
+                    $invoice->lead->gjob->activities()->create([
+                        'user_id' => $userId,
+                        'action' => 'Helcim Payment Received',
+                        'description' => "Invoice {$invoice->invoice_number} paid successfully via Helcim.",
+                    ]);
+                }
+            } catch (\Exception $logEx) {
+                Log::warning('Job Activity log failed', ['error' => $logEx->getMessage()]);
+            }
+
+            Log::info("Webhook Success: Invoice {$invoice->invoice_number} marked as PAID.");
+            return response()->json(['status' => 'success'], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Webhook Exception', ['message' => $e->getMessage()]);
+            return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
         }
-
-        Log::info("Webhook Success: Invoice {$invoice->invoice_number} marked as PAID.");
-        return response()->json(['status' => 'success'], 200);
-
-    } catch (\Exception $e) {
-        Log::error('Webhook Exception', ['message' => $e->getMessage()]);
-        return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
     }
-}
 }
