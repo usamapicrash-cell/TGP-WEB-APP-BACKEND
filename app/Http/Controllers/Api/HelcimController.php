@@ -306,7 +306,7 @@ class HelcimController extends Controller
         $terminalOrderId = $transaction['terminalOrderId'] ?? null;
         $checkoutToken = $transaction['checkoutToken'] ?? null;
 
-        // Correct Query Builder Chaining (Without string dots)
+        // Smart & Precise Invoice Matching
         $invoice = Invoice::query()
             ->when($checkoutToken, function ($q) use ($checkoutToken) {
                 $q->where('helcim_checkout_token', $checkoutToken)
@@ -319,14 +319,6 @@ class HelcimController extends Controller
                 $q->orWhere('helcim_invoice_number', $helcimInvNum);
             })
             ->first();
-
-        // Safety Fallback: Search latest DUE invoice by exact amount if not found
-        if (!$invoice && isset($transaction['amount'])) {
-            $invoice = Invoice::where('status', 'DUE')
-                ->where('total_amount', $transaction['amount'])
-                ->latest('id')
-                ->first();
-        }
 
         if (!$invoice) {
             Log::warning('Invoice not found for transaction', [
@@ -360,12 +352,20 @@ class HelcimController extends Controller
             ]);
         });
 
-        if ($invoice->lead && $invoice->lead->gjob) {
-            $invoice->lead->gjob->activities()->create([
-                'user_id' => null,
-                'action' => 'Helcim Payment Received',
-                'description' => "Invoice {$invoice->invoice_number} paid successfully via Helcim.",
-            ]);
+        // Safe Job Activity Logging (Prevents user_id null error)
+        try {
+            if ($invoice->lead && $invoice->lead->gjob) {
+                // Agar auth user na ho toh System ID (1) use hoga
+                $userId = auth()->id() ?? 1; 
+
+                $invoice->lead->gjob->activities()->create([
+                    'user_id' => $userId,
+                    'action' => 'Helcim Payment Received',
+                    'description' => "Invoice {$invoice->invoice_number} paid successfully via Helcim.",
+                ]);
+            }
+        } catch (\Exception $logEx) {
+            Log::warning('Job Activity log failed', ['error' => $logEx->getMessage()]);
         }
 
         Log::info("Webhook Success: Invoice {$invoice->invoice_number} marked as PAID.");
