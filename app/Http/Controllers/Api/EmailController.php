@@ -5,6 +5,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Email;
 use App\Models\EmailAttachment;
 use App\Models\Lead;
+use App\Jobs\SyncEmailsJob; // <-- YAHAN IMPORT REQIURED HAI
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
