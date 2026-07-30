@@ -320,18 +320,29 @@ public function voiceAnswerWebhook(Request $request) {
         $data = $request->all();
         \Log::info('Vonage Event Webhook', $data);
 
-        $status = $data['status'] ?? null;
-        $conversationUuid = $data['conversation_uuid'] ?? null;
-
-        // In status par humne React widget ko band karwana hai
-        $endStates = ['completed', 'busy', 'cancelled', 'timeout', 'rejected', 'failed'];
-
-        if ($conversationUuid && in_array($status, $endStates)) {
-            // Real-time Event trigger karein taake React ko signal jaye
-            event(new \App\Events\VonageCallEvent($conversationUuid, $status));
-            \Log::info("Broadcasted Call End Event for Conversation: {$conversationUuid} with status: {$status}");
+         $status            = $data['status'] ?? null;
+        $conversationUuid  = $data['conversation_uuid'] ?? null;
+        $direction         = $data['direction'] ?? null;
+     
+        if (!$conversationUuid || !$status) {
+            return response()->json([], 200);
         }
-
+     
+        // 🔥 Call terminate/fail hone wale states
+        $endStates = [
+            'completed', 'busy', 'cancelled', 'canceled',
+            'timeout', 'rejected', 'failed',
+            'no_answer', 'no-answer', 'unanswered', 'declined'
+        ];
+     
+        // 🔥 NAYA: Call live/progress states — pehle yeh broadcast hi nahi hote the
+        $liveStates = ['ringing', 'started', 'answered', 'connected', 'active'];
+     
+        if (in_array($status, $endStates) || in_array($status, $liveStates)) {
+            event(new \App\Events\VonageCallEvent($conversationUuid, $status, $direction));
+            \Log::info("Broadcasted Call Status Event for Conversation: {$conversationUuid} with status: {$status} (direction: {$direction})");
+        }
+     
         return response()->json([], 200);
     }
 }

@@ -4,7 +4,7 @@ namespace App\Events;
 
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow; // ShouldBroadcastNow se instant deliver hoga
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
@@ -14,11 +14,13 @@ class VonageCallEvent implements ShouldBroadcastNow
 
     public $conversationUuid;
     public $status;
+    public $direction; // 🔥 naya field - optional, ab bhi backward compatible hai
 
-    public function __construct($conversationUuid, $status)
+    public function __construct($conversationUuid, $status, $direction = null)
     {
         $this->conversationUuid = $conversationUuid;
         $this->status = $status;
+        $this->direction = $direction;
     }
 
     public function broadcastOn()
@@ -31,5 +33,16 @@ class VonageCallEvent implements ShouldBroadcastNow
     {
         // Event ka naam jo React mein use hoga
         return 'CallStatusUpdated';
+    }
+
+    public function broadcastWith()
+    {
+        // 🔥 Explicit payload — pehle sirf default public properties broadcast
+        // hoti thin, ab direction bhi frontend ko milega (agar chahiye ho)
+        return [
+            'conversationUuid' => $this->conversationUuid,
+            'status'           => $this->status,
+            'direction'        => $this->direction,
+        ];
     }
 }
