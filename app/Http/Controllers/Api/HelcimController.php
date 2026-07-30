@@ -272,7 +272,7 @@ class HelcimController extends Controller
         }
     }
 
-   public function handleWebhook(Request $request)
+ public function handleWebhook(Request $request)
 {
     $payload = $request->all();
     Log::info('Helcim Webhook Received', $payload);
@@ -302,33 +302,25 @@ class HelcimController extends Controller
             return response()->json(['status' => 'not_approved'], 200);
         }
 
-        // Helcim attributes
-        $helcimInvNum = $transaction['invoiceNumber'] ?? null; // e.g. INV114100
+        $helcimInvNum = $transaction['invoiceNumber'] ?? null;
         $terminalOrderId = $transaction['terminalOrderId'] ?? null;
         $checkoutToken = $transaction['checkoutToken'] ?? null;
 
-        // Smart Invoice Matching Query
+        // Correct Query Builder Chaining (Without string dots)
         $invoice = Invoice::query()
-            // 1. Agar checkoutToken transaction me aaya ho
-            .when($checkoutToken, function ($q) use ($checkoutToken) {
-                $q->orWhere('helcim_checkout_token', $checkoutToken);
+            ->when($checkoutToken, function ($q) use ($checkoutToken) {
+                $q->where('helcim_checkout_token', $checkoutToken)
+                  ->orWhere('checkout_url', 'LIKE', "%{$checkoutToken}%");
             })
-            // 2. Database `checkout_url` me Token check karein (Helcim Token mismatch protection)
-            .when($checkoutToken, function ($q) use ($checkoutToken) {
-                $q->orWhere('checkout_url', 'LIKE', '%' . $checkoutToken . '%');
-            })
-            // 3. System custom Order ID
-            .when($terminalOrderId, function ($q) use ($terminalOrderId) {
+            ->when($terminalOrderId, function ($q) use ($terminalOrderId) {
                 $q->orWhere('invoice_number', $terminalOrderId);
             })
-            // 4. Match using helcim_invoice_number if already linked
-            .when($helcimInvNum, function ($q) use ($helcimInvNum) {
+            ->when($helcimInvNum, function ($q) use ($helcimInvNum) {
                 $q->orWhere('helcim_invoice_number', $helcimInvNum);
             })
-            // 5. Fallback: Latest 'DUE' invoice for the amount paid (safety fallback)
-            .first();
+            ->first();
 
-        // Agar upper queries se na miley, to Helcim Pay session mapping fallback:
+        // Safety Fallback: Search latest DUE invoice by exact amount if not found
         if (!$invoice && isset($transaction['amount'])) {
             $invoice = Invoice::where('status', 'DUE')
                 ->where('total_amount', $transaction['amount'])
@@ -344,7 +336,7 @@ class HelcimController extends Controller
             return response()->json(['status' => 'invoice_not_found'], 200);
         }
 
-        // Duplicate protection
+        // Duplicate payment protection
         if ($invoice->status === 'PAID') {
             Log::info("Invoice {$invoice->invoice_number} is already paid.");
             return response()->json(['status' => 'already_paid'], 200);
