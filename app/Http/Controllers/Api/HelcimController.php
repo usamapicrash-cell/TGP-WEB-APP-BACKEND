@@ -7,6 +7,8 @@ use App\Models\Lead;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\Email;
+use App\Models\UserNotification; // 👈 Added
+use App\Models\User;             // 👈 Added for fetching admins
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -347,6 +349,32 @@ class HelcimController extends Controller
                     'payment_date' => now(),
                 ]);
             });
+
+            try {
+                $clientName = $invoice->lead ? $invoice->lead->client_name : 'Customer';
+                $title = "Payment Received - Invoice #{$invoice->invoice_number}";
+                $msg = "Payment of \${$amount} received for Invoice #{$invoice->invoice_number} ({$clientName}) via Helcim.";
+
+                // Fetch all Admin users (modify condition according to your user role schema e.g., role == 'admin')
+                $adminUsers = User::where('role', 'admin')->get();
+
+                // Fallback: If no role column exists or zero admins found, target user ID 1
+                if ($adminUsers->isEmpty()) {
+                    $adminUsers = User::where('id', 3)->get();
+                }
+
+                foreach ($adminUsers as $admin) {
+                    UserNotification::create([
+                        'user_id' => $admin->id,
+                        'title'   => $title,
+                        'msg'     => $msg,
+                        'type'    => 'payment_received',
+                        'read_at' => null
+                    ]);
+                }
+            } catch (\Exception $notifEx) {
+                Log::warning('Payment Notification creation failed', ['error' => $notifEx->getMessage()]);
+            }
 
             // Safe Activity Log (No foreign key crashes)
             try {
