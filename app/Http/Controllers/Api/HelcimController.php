@@ -68,6 +68,7 @@ class HelcimController extends Controller
                     'lead_id' => $lead->id,
                     'invoice_number' => $invoiceNum,
                     'helcim_invoice_number' => $result['invoiceNumber'] ?? null,
+                    'helcim_checkout_token' => $result['checkoutToken'], // <-- Add this line
                     'total_amount' => $request->amount,
                     'paid_amount' => 0,
                     'status' => 'DUE',
@@ -271,121 +272,80 @@ class HelcimController extends Controller
         }
     }
 
-    public function handleWebhook(Request $request)
+   public function handleWebhook(Request $request)
 {
     $payload = $request->all();
-
     Log::info('Helcim Webhook Received', $payload);
 
     try {
-
-        // Webhook se transaction ID lo
         $transactionId = $payload['id'] ?? null;
-
         if (!$transactionId) {
-
-            Log::warning('No transaction ID found.');
-
-            return response()->json([
-                'status' => 'no_transaction_id'
-            ], 200);
+            return response()->json(['status' => 'no_transaction_id'], 200);
         }
 
-        // Helcim API se full transaction details fetch karo
+        // Fetch transaction details from Helcim API
         $response = Http::withHeaders([
             'api-token' => env('HELCIM_KEY'),
             'Accept' => 'application/json',
         ])->get("https://api.helcim.com/v2/card-transactions/{$transactionId}");
 
         if (!$response->successful()) {
-
-            Log::error('Failed to fetch transaction details', [
-                'response' => $response->body()
-            ]);
-
-            return response()->json([
-                'status' => 'api_failed'
-            ], 200);
+            Log::error('Failed to fetch transaction details', ['response' => $response->body()]);
+            return response()->json(['status' => 'api_failed'], 200);
         }
 
         $transaction = $response->json();
-
         Log::info('Helcim Transaction Details', $transaction);
 
-        // Status check
         $status = strtolower($transaction['status'] ?? '');
-
         if (!in_array($status, ['approved', 'completed'])) {
-
-            Log::warning('Transaction not approved', [
-                'status' => $status
-            ]);
-
-            return response()->json([
-                'status' => 'not_approved'
-            ], 200);
+            return response()->json(['status' => 'not_approved'], 200);
         }
 
-        // Invoice number
-        $invoiceNumber = null;
+        // Direct matching priority:
+        // 1. Check by checkoutToken if available in transaction response
+        // 2. Check by terminalOrderId
+        // 3. Fallback to helcim_invoice_number or invoice_number
+        
+        $checkoutToken = $transaction['checkoutToken'] ?? null;
+        $terminalOrderId = $transaction['terminalOrderId'] ?? null;
+        $helcimInvNum = $transaction['invoiceNumber'] ?? null;
 
-        // 1. terminalOrderId
-        if (!empty($transaction['terminalOrderId'])) {
-
-            $invoiceNumber = $transaction['terminalOrderId'];
-        }
-
-        // 3. Helcim invoice fallback
-        if (!$invoiceNumber && !empty($transaction['invoiceNumber'])) {
-
-            $invoiceNumber = $transaction['invoiceNumber'];
-        }
-
-        Log::info('Resolved Invoice Number', [
-            'invoice' => $invoiceNumber
-        ]);
-
-        $invoice = Invoice::where('helcim_invoice_number', $invoiceNumber)
-            ->orWhere('invoice_number', $invoiceNumber)
+        $invoice = Invoice::query()
+            ->when($checkoutToken, function ($q) use ($checkoutToken) {
+                $q->orWhere('helcim_checkout_token', $checkoutToken);
+            })
+            ->when($terminalOrderId, function ($q) use ($terminalOrderId) {
+                $q->orWhere('invoice_number', $terminalOrderId);
+            })
+            ->when($helcimInvNum, function ($q) use ($helcimInvNum) {
+                $q->orWhere('helcim_invoice_number', $helcimInvNum)
+                  ->orWhere('invoice_number', $helcimInvNum);
+            })
             ->first();
+
         if (!$invoice) {
-
-            Log::warning('Invoice not found', [
-                'invoice' => $invoiceNumber
+            Log::warning('Invoice not found for transaction', [
+                'transactionId' => $transactionId,
+                'invoiceNumber' => $helcimInvNum
             ]);
-
-            return response()->json([
-                'status' => 'invoice_not_found'
-            ], 200);
+            return response()->json(['status' => 'invoice_not_found'], 200);
         }
 
         // Duplicate protection
         if ($invoice->status === 'PAID') {
-
-            Log::info('Invoice already paid', [
-                'invoice' => $invoiceNumber
-            ]);
-
-            return response()->json([
-                'status' => 'already_paid'
-            ], 200);
+            return response()->json(['status' => 'already_paid'], 200);
         }
 
         $amount = $transaction['amount'] ?? $invoice->total_amount;
 
-        DB::transaction(function () use (
-            $invoice,
-            $amount,
-            $transactionId
-        ) {
-
-            // Invoice update
+        DB::transaction(function () use ($invoice, $amount, $transactionId, $helcimInvNum) {
             $invoice->update([
                 'status' => 'PAID',
-                'paid_amount' => $amount
+                'paid_amount' => $amount,
+                'helcim_invoice_number' => $helcimInvNum ?? $invoice->helcim_invoice_number
             ]);
 
-            // Payment create
             $invoice->payments()->create([
                 'lead_id' => $invoice->lead_id,
                 'amount' => $amount,
@@ -395,33 +355,20 @@ class HelcimController extends Controller
             ]);
         });
 
-        // Activity log
         if ($invoice->lead && $invoice->lead->gjob) {
-
             $invoice->lead->gjob->activities()->create([
                 'user_id' => null,
                 'action' => 'Helcim Payment Received',
-                'description' => "Invoice {$invoiceNumber} paid successfully via Helcim.",
+                'description' => "Invoice {$invoice->invoice_number} paid successfully via Helcim.",
             ]);
         }
 
-        Log::info("Webhook Success: Invoice {$invoiceNumber} marked as PAID.");
-
-        return response()->json([
-            'status' => 'success'
-        ], 200);
+        Log::info("Webhook Success: Invoice {$invoice->invoice_number} marked as PAID.");
+        return response()->json(['status' => 'success'], 200);
 
     } catch (\Exception $e) {
-
-        Log::error('Webhook Exception', [
-            'message' => $e->getMessage(),
-            'line' => $e->getLine(),
-        ]);
-
-        return response()->json([
-            'status' => 'error',
-            'message' => $e->getMessage()
-        ], 500);
+        Log::error('Webhook Exception', ['message' => $e->getMessage()]);
+        return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
     }
 }
 }

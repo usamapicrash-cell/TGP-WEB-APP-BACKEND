@@ -12,6 +12,7 @@ class Invoice extends Model
         'lead_id',
         'invoice_number',
         'helcim_invoice_number',
+        'helcim_checkout_token',
         'total_amount',
         'paid_amount',
         'status',
