@@ -19,6 +19,16 @@ Route::get('/storage/job-media/{filename}', function ($filename) {
     return Storage::disk('public')->response($path);
 });
 
+Route::get('/storage/email_attachments/{filename}', function ($filename) {
+    $path = 'email_attachments/' . $filename;
+
+    if (!Storage::disk('public')->exists($path)) {
+        abort(404);
+    }
+
+    return Storage::disk('public')->response($path);
+});
+
 
 
 Route::get('/clear-all-cache', function () {
