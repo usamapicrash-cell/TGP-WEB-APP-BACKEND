@@ -21,7 +21,7 @@ class EmailController extends Controller
             'customer_email' => 'required|email'
         ]);
 
-        Artisan::call('sync:emails');
+        // SyncEmailsJob::dispatch();
 
         // Is customer ki puri history (sent/received) attachments ke sath
         $emails = Email::with('attachments')
@@ -40,8 +40,7 @@ class EmailController extends Controller
             'lead_orderno' => 'required'
         ]);
 
-        Artisan::call('sync:emails');
-
+        // SyncEmailsJob::dispatch();
         $orderNo = $request->lead_orderno;
 
         $emails = Email::with('attachments')
@@ -121,7 +120,7 @@ class EmailController extends Controller
                 }
             });
             \Log::info('Email sent successfully to: ' . $request->to . $sender);
-            Artisan::queue('sync:emails');
+            SyncEmailsJob::dispatch();
             return response()->json(['status' => 'success', 'message' => 'Email sent successfully']);
         } catch (\Exception $e) {
             \Log::error('Email Sending Failed', [
