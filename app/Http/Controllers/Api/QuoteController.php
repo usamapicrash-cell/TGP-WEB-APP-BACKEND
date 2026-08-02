@@ -55,7 +55,7 @@ class QuoteController extends Controller
 
                 // 2. Count existing quotes to make a unique versioned quote number
                 $version = $lead->quotes()->count() + 1;
-                $quoteNumber = 'QT-' . ($lead->id + 1000) . '-V' . $version;
+                $quoteNumber = 'QT-' . ($lead->order_no) . '-V' . $version;
 
                 // 3. Create the NEW active quote
                 $quote = Quote::create([
