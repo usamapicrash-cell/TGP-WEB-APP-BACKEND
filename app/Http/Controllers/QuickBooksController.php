@@ -3,6 +3,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use QuickBooksOnline\API\DataService\DataService;
+use QuickBooksOnline\API\Facades\Item;
 use Illuminate\Support\Facades\DB;
 
 class QuickBooksController extends Controller
@@ -112,6 +113,52 @@ class QuickBooksController extends Controller
             'success' => true,
             'count' => count($itemNames),
             'items' => $itemNames
+        ]);
+    }
+
+    public function createItem(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string|max:100',
+            'unit_price' => 'nullable|numeric',
+            'description' => 'nullable|string'
+        ]);
+
+        $tokenData = DB::table('quickbooks_tokens')->first();
+        if (!$tokenData) return response()->json(['error' => 'QuickBooks connection missing'], 400);
+
+        $dataService = $this->getDataService();
+        
+        // Income Account Fetch/Query karna dynamic creation ke liye
+        $accounts = $dataService->Query("SELECT * FROM Account WHERE AccountType='Income' MAXRESULTS 1");
+        $incomeAccountRef = ($accounts && count($accounts) > 0) ? $accounts[0]->Id : "1";
+
+        $itemObj = Item::create([
+            "Name" => $request->name,
+            "Type" => "Service",
+            "UnitPrice" => $request->unit_price ?? 0,
+            "Description" => $request->description ?? $request->name,
+            "IncomeAccountRef" => [
+                "value" => $incomeAccountRef
+            ]
+        ]);
+
+        $resultingObj = $dataService->Add($itemObj);
+        $error = $dataService->getLastError();
+
+        if ($error) {
+            return response()->json(['error' => $error->getResponseBody()], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'item' => [
+                'id' => $resultingObj->Id,
+                'name' => $resultingObj->Name,
+                'type' => $resultingObj->Type,
+                'unit_price' => $resultingObj->UnitPrice ?? 0,
+                'description' => $resultingObj->Description ?? ''
+            ]
         ]);
     }
 }

@@ -31,6 +31,7 @@ use Illuminate\Http\Request;
 Route::get('/quickbooks/connect', [QuickBooksController::class, 'connect']);
 Route::get('/quickbooks/callback', [QuickBooksController::class, 'callback']);
 Route::get('/quickbooks/inventory', [QuickBooksController::class, 'getInventory']);
+Route::post('/quickbooks/create-item', [QuickBooksController::class, 'createItem']);
 
 Route::post('/payment/webhook', [HelcimController::class, 'handleWebhook']);
 Route::post('/website/lead', [LeadController::class, 'web_store']);
