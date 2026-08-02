@@ -114,7 +114,7 @@ class PurchaseOrderController extends Controller
 
             // PO Create
             $po = PurchaseOrder::create([
-                'po_number'      => $this->generatePoNumber(),
+                'po_number'      => $this->generatePoNumber($request->lead_id),
                 'supplier_id'    => $request->supplier_id,
                 'lead_id'        => $request->lead_id,
                 'status'         => 'draft',
@@ -355,11 +355,33 @@ class PurchaseOrderController extends Controller
         }
     }
 
-    protected function generatePoNumber()
+    protected function generatePoNumber($leadId)
     {
-        $year = now()->format('Y');
-        $count = PurchaseOrder::whereYear('created_at', $year)->count() + 1;
-        return "PO-$year-" . str_pad($count, 3, '0', STR_PAD_LEFT);
+        // 1. Lead find karein order_no hasil karne ke liye
+        $lead = \App\Models\Lead::find($leadId);
+        $orderNo = $lead ? $lead->order_no : '0000';
+
+        // 2. Iss lead ke pehle se bane hue POs count karein
+        $existingPoCount = PurchaseOrder::where('lead_id', $leadId)->count();
+
+        // 3. Count ke hisab se letter calculate karein (0 => 'A', 1 => 'B', 26 => 'AA' etc.)
+        $letter = $this->getNameFromNumber($existingPoCount);
+
+        return "PO-{$orderNo}-{$letter}";
+    }
+
+    /**
+     * Number to Alphabet converter (0 = A, 1 = B, 25 = Z, 26 = AA...)
+     */
+    private function getNameFromNumber($num) {
+        $numeric = $num % 26;
+        $letter = chr(65 + $numeric);
+        $num2 = intval($num / 26);
+        if ($num2 > 0) {
+            return $this->getNameFromNumber($num2 - 1) . $letter;
+        } else {
+            return $letter;
+        }
     }
 
 
