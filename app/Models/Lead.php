@@ -52,6 +52,16 @@ class Lead extends Model
 
     public function payments()   { return $this->hasMany(Payment::class, 'lead_id'); }
 
+    public function quotes()
+    {
+        return $this->hasMany(Quote::class);
+    }
+
+    // Sirf Approved Quote fetch karne ke liye helper relation
+    public function approvedQuote()
+    {
+        return $this->hasOne(Quote::class)->where('status', 'approved'); // ya 'approved' (apne DB status ke mutabiq)
+    }
 
     protected static function boot()
     {

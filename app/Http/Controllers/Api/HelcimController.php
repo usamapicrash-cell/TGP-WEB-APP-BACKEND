@@ -248,18 +248,28 @@ class HelcimController extends Controller
     public function downloadPDF($id)
     {
         try {
-            // 1. Nested quote aur items load karein
-            $invoice = Invoice::with(['lead.quote.items', 'payments'])->findOrFail($id);
+            // 1. Invoice ke sath Lead aur uski Approved Quote + Items load karein
+            $invoice = Invoice::with([
+                'lead.quotes' => function ($query) {
+                    // Quotes filter karein jinka status APPROVED ho (case-insensitive handle karne ke liye lower/upper match)
+                    $query->whereIn('status', ['APPROVED', 'approved'])->with('items');
+                },
+                'payments'
+            ])->findOrFail($id);
+
             $lead = $invoice->lead;
 
-            // 2. Lead ki Quote se items extract karein (safe fallback list agar quote/items null hon)
-            $items = optional($lead->quote)->items ?? collect();
+            // 2. Lead ki quotes collection me se pehla approved quote nikalain
+            $approvedQuote = $lead ? $lead->quotes->first() : null;
+
+            // 3. Items extract karein (agar approved quote mil jaye, warna empty collection)
+            $items = $approvedQuote ? $approvedQuote->items : collect();
 
             if (!view()->exists('pdfs.invoice')) {
                 return response()->json(['error' => 'View not found'], 404);
             }
 
-            // 3. 'items' variable ko view data mein pass karein
+            // 4. View load karke PDF stream karein
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdfs.invoice', compact('invoice', 'lead', 'items'));
             return $pdf->stream("invoice_{$invoice->invoice_number}.pdf");
 
