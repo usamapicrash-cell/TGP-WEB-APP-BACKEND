@@ -7,8 +7,8 @@ use App\Models\Lead;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\Email;
-use App\Models\UserNotification; // 👈 Added
-use App\Models\User;             // 👈 Added for fetching admins
+use App\Models\UserNotification;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -19,6 +19,26 @@ use App\Mail\SendPaymentLinkMail;
 
 class HelcimController extends Controller
 {
+    /**
+     * Helper function to generate custom invoice number based on Lead/Job order number with suffix (A, B, C...).
+     */
+    private function generateInvoiceNumber(Lead $lead): string
+    {
+        // Order / Job Number fetch karein (Lead attributes ya dynamic relationship se)
+        $baseNumber = $lead->job_number 
+            ?? $lead->order_number 
+            ?? ($lead->gjob ? $lead->gjob->job_number : null) 
+            ?? "JOB-{$lead->id}";
+
+        // Is Lead/Job par pehle se bani hui invoices ka count check karein
+        $existingCount = Invoice::where('lead_id', $lead->id)->count();
+
+        // 0 index = A, 1 = B, 2 = C...
+        $suffix = range('A', 'Z')[$existingCount] ?? ('_' . ($existingCount + 1));
+
+        return "{$baseNumber}{$suffix}";
+    }
+
     public function generateLink(Request $request, Lead $lead)
     {
         $request->validate([
@@ -27,21 +47,10 @@ class HelcimController extends Controller
         ]);
 
         try {
-            // 1. Incremental Invoice Number Logic (e.g., INV00001)
-            $lastInvoice = Invoice::where('invoice_number', 'LIKE', 'INV%')
-                ->latest('id')
-                ->first();
+            // Dynamic Invoice Number Generation (INV Hataya gaya)
+            $invoiceNum = $this->generateInvoiceNumber($lead);
 
-            if ($lastInvoice) {
-                $number = (int) substr($lastInvoice->invoice_number, 3);
-                $newNumber = $number + 1;
-            } else {
-                $newNumber = 1;
-            }
-
-            $invoiceNum = 'INV' . str_pad($newNumber, 5, '0', STR_PAD_LEFT);
-
-            // 2. Helcim API Call to get Checkout Token
+            // Helcim API Call to get Checkout Token
             $response = Http::withHeaders([
                 'api-token' => env('HELCIM_KEY'),
                 'Accept' => 'application/json',
@@ -65,7 +74,7 @@ class HelcimController extends Controller
                 $checkoutToken = $result['checkoutToken'];
                 $finalUrl = "https://secure.helcim.app/helcim-pay/" . $checkoutToken;
 
-                // 3. Database mein Invoice Create karein
+                // Database me Invoice Store karein
                 $invoice = Invoice::create([
                     'lead_id' => $lead->id,
                     'invoice_number' => $invoiceNum,
@@ -139,12 +148,8 @@ class HelcimController extends Controller
         return DB::transaction(function () use ($request) {
             $lead = Lead::findOrFail($request->lead_id);
 
-            $lastInvoice = Invoice::where('invoice_number', 'LIKE', 'INV%')
-                ->latest('id')
-                ->first();
-
-            $newNumber = $lastInvoice ? ((int) substr($lastInvoice->invoice_number, 3)) + 1 : 1;
-            $invoiceNum = 'INV' . str_pad($newNumber, 5, '0', STR_PAD_LEFT);
+            // Dynamic Invoice Number Generation (INV Hataya gaya)
+            $invoiceNum = $this->generateInvoiceNumber($lead);
 
             $invoice = Invoice::create([
                 'lead_id'        => $lead->id,
@@ -251,7 +256,7 @@ class HelcimController extends Controller
             return $pdf->stream("invoice_{$invoice->invoice_number}.pdf");
 
         } catch (\Exception $e) {
-            \Log::error("PDF Error: " . $e->getMessage());
+            Log::error("PDF Error: " . $e->getMessage());
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
@@ -267,7 +272,7 @@ class HelcimController extends Controller
                 return response()->json(['status' => 'no_transaction_id'], 200);
             }
 
-            // 1. Fetch transaction details from Helcim API
+            // Fetch transaction details from Helcim API
             $response = Http::withHeaders([
                 'api-token' => env('HELCIM_KEY'),
                 'Accept' => 'application/json',
@@ -289,11 +294,9 @@ class HelcimController extends Controller
             $helcimInvNum = $transaction['invoiceNumber'] ?? null;
             $terminalOrderId = $transaction['terminalOrderId'] ?? null;
             $checkoutToken = $transaction['checkoutToken'] ?? null;
-            
-            // Custom Data check
             $customInvNum = $transaction['customData']['my_invoice_number'] ?? null;
 
-            // Robust Lookup
+            // Invoice Lookup
             $invoice = Invoice::query()
                 ->when($customInvNum, function ($q) use ($customInvNum) {
                     $q->where('invoice_number', $customInvNum);
@@ -310,7 +313,7 @@ class HelcimController extends Controller
                 })
                 ->first();
 
-            // Fallback: Check strictly by unpaid 'DUE' invoice matching exact amount & latest creation
+            // Fallback matching
             if (!$invoice && isset($transaction['amount'])) {
                 $invoice = Invoice::where('status', 'DUE')
                     ->where('total_amount', $transaction['amount'])
@@ -326,7 +329,6 @@ class HelcimController extends Controller
                 return response()->json(['status' => 'invoice_not_found'], 200);
             }
 
-            // Duplicate protection
             if ($invoice->status === 'PAID') {
                 Log::info("Invoice {$invoice->invoice_number} is already paid.");
                 return response()->json(['status' => 'already_paid'], 200);
@@ -355,10 +357,8 @@ class HelcimController extends Controller
                 $title = "Payment Received - Invoice #{$invoice->invoice_number}";
                 $msg = "Payment of \${$amount} received for Invoice #{$invoice->invoice_number} ({$clientName}) via Helcim.";
 
-                // Fetch all Admin users (modify condition according to your user role schema e.g., role == 'admin')
                 $adminUsers = User::where('role', 'admin')->get();
 
-                // Fallback: If no role column exists or zero admins found, target user ID 1
                 if ($adminUsers->isEmpty()) {
                     $adminUsers = User::where('id', 3)->get();
                 }
@@ -376,7 +376,6 @@ class HelcimController extends Controller
                 Log::warning('Payment Notification creation failed', ['error' => $notifEx->getMessage()]);
             }
 
-            // Safe Activity Log (No foreign key crashes)
             try {
                 if ($invoice->lead && $invoice->lead->gjob) {
                     $userId = auth()->id() ?? 1;
