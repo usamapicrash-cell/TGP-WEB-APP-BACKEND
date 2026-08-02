@@ -117,48 +117,73 @@ class QuickBooksController extends Controller
     }
 
     public function createItem(Request $request)
-    {
-        $request->validate([
-            'name' => 'required|string|max:100',
-            'unit_price' => 'nullable|numeric',
-            'description' => 'nullable|string'
-        ]);
+{
+    $request->validate([
+        'name' => 'required|string|max:100',
+        'unit_price' => 'nullable|numeric',
+        'description' => 'nullable|string'
+    ]);
 
-        $tokenData = DB::table('quickbooks_tokens')->first();
-        if (!$tokenData) return response()->json(['error' => 'QuickBooks connection missing'], 400);
+    $tokenData = DB::table('quickbooks_tokens')->first();
+    if (!$tokenData) {
+        return response()->json(['error' => 'QuickBooks connection missing'], 400);
+    }
 
-        $dataService = $this->getDataService();
+    // Pass access token, refresh token, and realm ID to DataService
+    $dataService = DataService::Configure([
+        'auth_mode' => 'oauth2',
+        'ClientID' => config('services.quickbooks.client_id'),
+        'ClientSecret' => config('services.quickbooks.client_secret'),
+        'accessTokenKey' => $tokenData->access_token,
+        'refreshTokenKey' => $tokenData->refresh_token,
+        'QBORealmID' => $tokenData->realm_id,
+        'baseUrl' => config('services.quickbooks.environment') === 'Production' ? 'Production' : 'Development'
+    ]);
+
+    // Refresh token if needed
+    $OAuth2LoginHelper = $dataService->getOAuth2LoginHelper();
+    $refreshedTokenObj = $OAuth2LoginHelper->refreshToken();
+    
+    if ($refreshedTokenObj) {
+        $dataService->updateOAuth2Token($refreshedTokenObj);
         
-        // Income Account Fetch/Query karna dynamic creation ke liye
-        $accounts = $dataService->Query("SELECT * FROM Account WHERE AccountType='Income' MAXRESULTS 1");
-        $incomeAccountRef = ($accounts && count($accounts) > 0) ? $accounts[0]->Id : "1";
-
-        $itemObj = Item::create([
-            "Name" => $request->name,
-            "Type" => "Service",
-            "UnitPrice" => $request->unit_price ?? 0,
-            "Description" => $request->description ?? $request->name,
-            "IncomeAccountRef" => [
-                "value" => $incomeAccountRef
-            ]
-        ]);
-
-        $resultingObj = $dataService->Add($itemObj);
-        $error = $dataService->getLastError();
-
-        if ($error) {
-            return response()->json(['error' => $error->getResponseBody()], 500);
-        }
-
-        return response()->json([
-            'success' => true,
-            'item' => [
-                'id' => $resultingObj->Id,
-                'name' => $resultingObj->Name,
-                'type' => $resultingObj->Type,
-                'unit_price' => $resultingObj->UnitPrice ?? 0,
-                'description' => $resultingObj->Description ?? ''
-            ]
+        DB::table('quickbooks_tokens')->where('id', $tokenData->id)->update([
+            'access_token' => $refreshedTokenObj->getAccessToken(),
+            'refresh_token' => $refreshedTokenObj->getRefreshToken(),
+            'updated_at' => now()
         ]);
     }
+
+    // Income Account Fetch/Query
+    $accounts = $dataService->Query("SELECT * FROM Account WHERE AccountType='Income' MAXRESULTS 1");
+    $incomeAccountRef = ($accounts && count($accounts) > 0) ? $accounts[0]->Id : "1";
+
+    $itemObj = Item::create([
+        "Name" => $request->name,
+        "Type" => "Service",
+        "UnitPrice" => $request->unit_price ?? 0,
+        "Description" => $request->description ?? $request->name,
+        "IncomeAccountRef" => [
+            "value" => $incomeAccountRef
+        ]
+    ]);
+
+    $resultingObj = $dataService->Add($itemObj);
+    $error = $dataService->getLastError();
+
+    if ($error) {
+        return response()->json(['error' => $error->getResponseBody()], 500);
+    }
+
+    return response()->json([
+        'success' => true,
+        'item' => [
+            'id' => $resultingObj->Id,
+            'name' => $resultingObj->Name,
+            'type' => $resultingObj->Type,
+            'unit_price' => $resultingObj->UnitPrice ?? 0,
+            'description' => $resultingObj->Description ?? ''
+        ]
+    ]);
+}
 }
