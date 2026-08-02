@@ -25,7 +25,12 @@ use App\Http\Controllers\Api\{
     EmailController,
     SmsCommunicationController,
 };
+use App\Http\Controllers\QuickBooksController;
 use Illuminate\Http\Request;
+
+Route::get('/quickbooks/connect', [QuickBooksController::class, 'connect']);
+Route::get('/quickbooks/callback', [QuickBooksController::class, 'callback']);
+Route::get('/quickbooks/inventory', [QuickBooksController::class, 'getInventory']);
 
 Route::post('/payment/webhook', [HelcimController::class, 'handleWebhook']);
 Route::post('/website/lead', [LeadController::class, 'web_store']);
