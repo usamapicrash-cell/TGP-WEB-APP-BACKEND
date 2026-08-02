@@ -123,7 +123,7 @@ td {
 <!-- CLIENT -->
 <div class="client-box">
     <div class="section-title">Bill To:</div>
-    <div>{{ $quote->lead->name ?? 'Client Name' }}</div>
+    <div>{{ $quote->lead->client_name ?? 'Client Name' }}</div>
 </div>
 
 <!-- ITEMS -->
