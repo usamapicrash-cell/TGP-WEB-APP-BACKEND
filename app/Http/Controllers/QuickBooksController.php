@@ -53,6 +53,7 @@ class QuickBooksController extends Controller
     }
 
     // 3. Inventory Fetching Logic with Auto Token Refresh
+    // 3. Inventory Fetching Logic
     public function getInventory()
     {
         $tokenData = DB::table('quickbooks_tokens')->first();
@@ -85,18 +86,28 @@ class QuickBooksController extends Controller
             ]);
         }
 
-        // Fetch Inventory Items
-        $items = $dataService->Query("SELECT * FROM Item WHERE Type='Inventory'");
+        // UPDATE 1: Sub items fetch karne ke liye filter hata kar MAXRESULTS 1000 kar diya
+        $items = $dataService->Query("SELECT * FROM Item STARTPOSITION 1 MAXRESULTS 1000");
 
         $error = $dataService->getLastError();
         if ($error) {
             return response()->json(['error' => $error->getResponseBody()], 500);
         }
 
+        if (!$items) {
+            return response()->json(['success' => true, 'count' => 0, 'items' => []]);
+        }
+
+        // UPDATE 2: Sirf Item Name extract karne ke liye array mapping
+        $itemNames = array_map(function($item) {
+            return $item->Name; 
+            // Note: Agar full category path chahiye to $item->FullyQualifiedName use kar sakte hain
+        }, $items);
+
         return response()->json([
             'success' => true,
-            'count' => count($items),
-            'inventory' => $items
+            'count' => count($itemNames),
+            'items' => $itemNames
         ]);
     }
 }
