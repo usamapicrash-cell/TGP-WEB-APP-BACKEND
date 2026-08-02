@@ -100,7 +100,11 @@ class QuickBooksController extends Controller
 
         // UPDATE 2: Sirf Item Name extract karne ke liye array mapping
         $itemNames = array_map(function($item) {
-            return $item->Name; 
+            return [
+                'id' => $item->Id,
+                'name' => $item->Name,
+                'type' => $item->Type
+            ];
             // Note: Agar full category path chahiye to $item->FullyQualifiedName use kar sakte hain
         }, $items);
 
