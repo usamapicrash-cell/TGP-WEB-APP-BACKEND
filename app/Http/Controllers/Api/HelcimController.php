@@ -24,17 +24,20 @@ class HelcimController extends Controller
      */
     private function generateInvoiceNumber(Lead $lead): string
     {
-        // Order / Job Number fetch karein (Lead attributes ya dynamic relationship se)
-        $baseNumber = $lead->job_number 
-            ?? $lead->order_number 
-            ?? ($lead->gjob ? $lead->gjob->job_number : null) 
-            ?? "JOB-{$lead->id}";
+        // Lead se order_no ya lead_number (numeric part) lein
+        $baseNumber = $lead->order_no 
+            ?? (string) str_replace('LD-', '', $lead->lead_number ?? '')
+            ?? (string) $lead->id;
 
-        // Is Lead/Job par pehle se bani hui invoices ka count check karein
+        // Is Lead par pehle se bani hui invoices ka count check karein
         $existingCount = Invoice::where('lead_id', $lead->id)->count();
 
-        // 0 index = A, 1 = B, 2 = C...
-        $suffix = range('A', 'Z')[$existingCount] ?? ('_' . ($existingCount + 1));
+        // Pehli invoice par koi suffix nahi hoga, 2nd par 'A' (index 0), 3rd par 'B' (index 1)...
+        if ($existingCount === 0) {
+            $suffix = '';
+        } else {
+            $suffix = range('A', 'Z')[$existingCount - 1] ?? ('_' . $existingCount);
+        }
 
         return "{$baseNumber}{$suffix}";
     }
