@@ -22,7 +22,7 @@ class EmailController extends Controller
             'customer_email' => 'required|email'
         ]);
 
-        // SyncEmailsJob::dispatch();
+        SyncEmailsJob::dispatch();
 
         // Is customer ki puri history (sent/received) attachments ke sath
         $emails = Email::with('attachments')
@@ -41,7 +41,7 @@ class EmailController extends Controller
             'lead_orderno' => 'required'
         ]);
 
-        // SyncEmailsJob::dispatch();
+        SyncEmailsJob::dispatch();
         $orderNo = $request->lead_orderno;
 
         $emails = Email::with('attachments')
