@@ -8,9 +8,28 @@ use App\Models\GJob;
 use App\Models\JobMedia;
 use App\Models\JobActivity;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class JobMediaController extends Controller
 {
+
+    public function download($jobId, $mediaId)
+    {
+        $media = JobMedia::where('gjob_id', $jobId)->findOrFail($mediaId);
+
+        // Verify storage file existence
+        if (!Storage::disk('public')->exists($media->file_path)) {
+            return response()->json(['message' => 'File not found on server'], 404);
+        }
+
+        $fileName = basename($media->file_path);
+        
+        // Return streamed response using Laravel Storage API
+        return Storage::disk('public')->download($media->file_path, $fileName, [
+            'Access-Control-Expose-Headers' => 'Content-Disposition'
+        ]);
+    }
+
     public function index(GJob $job)
     {
         // GJob se linked saari media fetch karein user details ke saath

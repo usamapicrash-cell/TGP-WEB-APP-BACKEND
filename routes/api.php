@@ -140,7 +140,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/jobs/{job}/media', [JobMediaController::class, 'store']);
         Route::get('/jobs/{job}/media', [JobMediaController::class, 'index']);
         Route::delete('/jobs/{job}/media/{media}', [JobMediaController::class, 'destroy']);
-
+        Route::get('/jobs/{job}/media/{media}/download', [JobMediaController::class, 'download']);
+        
         // Invoice & Payment routes
         Route::get('leads/{lead}/invoices', [InvoiceController::class, 'index']);
         Route::post('payments/manual', [InvoiceController::class, 'recordManualPayment']);
