@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\GJob;
+use App\Models\JobMedia;
 use App\Models\JobActivity;
 use Illuminate\Support\Facades\Storage;
 
@@ -26,7 +27,7 @@ class JobMediaController extends Controller
         ]);
 
         $file = $request->file('file');
-        $extension = $file->getClientOriginalExtension();
+        $extension = strtolower($file->getClientOriginalExtension());
         
         // Database 'type' enum check: agar pdf hai toh 'document' warna 'image'
         $dbType = ($extension === 'pdf') ? 'document' : 'image';
@@ -43,9 +44,36 @@ class JobMediaController extends Controller
         JobActivity::create([
             'gjob_id' => $job->id,
             'user_id' => auth()->id(),
-            'action'  => "Uploaded " . strtoupper($request->type) . " photo"
+            'action'  => "Uploaded " . strtoupper($request->type) . " media"
         ]);
 
         return response()->json(['message' => 'Uploaded', 'media' => $media], 201);
+    }
+
+    public function destroy(GJob $job, JobMedia $media)
+    {
+        // Check if media belongs to the job
+        if ($media->gjob_id !== $job->id) {
+            return response()->json(['message' => 'Media does not belong to this job'], 403);
+        }
+
+        $stage = strtoupper($media->work_stage ?? 'MEDIA');
+
+        // Delete physical file from storage
+        if ($media->file_path && Storage::disk('public')->exists($media->file_path)) {
+            Storage::disk('public')->delete($media->file_path);
+        }
+
+        // Delete DB Record
+        $media->delete();
+
+        // Log Activity
+        JobActivity::create([
+            'gjob_id' => $job->id,
+            'user_id' => auth()->id(),
+            'action'  => "Deleted {$stage} media"
+        ]);
+
+        return response()->json(['message' => 'Media deleted successfully']);
     }
 }
