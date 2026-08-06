@@ -134,11 +134,12 @@ class DashboardController extends Controller
                 ->orderBy('date', 'asc')
                 ->get()
                 ->map(function($app) use ($today) {
-                    // Lead se GJob par jayenge, phir Glazier ka naam nikalenge
                     $glazierName = $app->lead->gjob->glazier->name ?? 'Not Set';
                     
                     return [
                         'id' => $app->id,
+                        'lead_id' => $app->lead_id ?? $app->lead->id ?? null,
+                        'gjob' => $app->lead->gjob ?? $app->gjob ?? null,
                         'client' => $app->lead->client_name ?? 'N/A',
                         'glazier' => $glazierName, 
                         'title' => $app->title,
