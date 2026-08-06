@@ -203,7 +203,7 @@ class JobController extends Controller
         $glazierId = auth()->id(); 
         
         $jobs = GJob::where('glazier_id', $glazierId)
-                    ->where('status', 'job')
+                    // ->where('status', 'job')
                     ->with(['lead', 'attendances' => function($query) use ($glazierId) {
                         $query->where('user_id', $glazierId)->latest();
                     }])
