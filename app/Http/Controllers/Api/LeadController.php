@@ -192,10 +192,7 @@ class LeadController extends Controller
     /**
      * PUT /leads/{id}
      */
-    /**
- * PUT /leads/{id}
- */
-public function update(Request $request, $id)
+    public function update(Request $request, $id)
 {
     $query = Lead::where('id', $id);
 
@@ -209,7 +206,9 @@ public function update(Request $request, $id)
         'type' => 'nullable|exists:lead_types,id',
     ]);
 
-    // Update payload array
+    // 1. Capture old state BEFORE updating
+    $originalData = $lead->getOriginal();
+
     $updateData = $request->only([
         'client_name',
         'care_of',
@@ -225,37 +224,36 @@ public function update(Request $request, $id)
         'phone',
     ]);
 
-    // Model update
+    // 2. Perform Update
     $lead->update($updateData);
 
-    // Dynamic Activity Logging ("Name changed from X to Y" format)
+    // 3. Activity Log with correct Old vs New values
     if ($lead->gjob) {
         $changes = $lead->getChanges();
-        
-        // Exclude internal updated_at field from log list
         unset($changes['updated_at']);
 
         if (!empty($changes)) {
-                $formattedChanges = [];
+            $formattedChanges = [];
 
-                foreach ($changes as $field => $newValue) {
-                    $oldValue = $lead->getOriginal($field) ?? 'N/A';
-                    $displayNewValue = $newValue ?? 'N/A';
-                    
-                    // title_case() ki jagah Str::title() use karein
-                    $fieldName = Str::title(str_replace('_', ' ', $field));
+            foreach ($changes as $field => $newValue) {
+                // Fetch actual old value stored before update
+                $oldValue = $originalData[$field] ?? 'N/A';
+                $displayNewValue = $newValue ?? 'N/A';
+                
+                // Format Field Name
+                $fieldName = Str::title(str_replace('_', ' ', $field));
 
-                    $formattedChanges[] = "{$fieldName}: '{$oldValue}' → '{$displayNewValue}'";
-                }
-
-                $description = "Lead updated by " . auth()->user()->name . " (" . implode(', ', $formattedChanges) . ")";
-
-                $lead->gjob->activities()->create([
-                    'user_id'     => auth()->id(),
-                    'action'      => 'Lead Updated',
-                    'description' => $description,
-                ]);
+                $formattedChanges[] = "{$fieldName}: '{$oldValue}' → '{$displayNewValue}'";
             }
+
+            $description = "Lead updated by " . auth()->user()->name . " (" . implode(', ', $formattedChanges) . ")";
+
+            $lead->gjob->activities()->create([
+                'user_id'     => auth()->id(),
+                'action'      => 'Lead Updated',
+                'description' => $description,
+            ]);
+        }
     }
 
     return response()->json([
