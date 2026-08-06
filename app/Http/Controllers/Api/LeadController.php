@@ -191,40 +191,77 @@ class LeadController extends Controller
     /**
      * PUT /leads/{id}
      */
-    public function update(Request $request, $id)
-    {
-        $query = Lead::where('id', $id);
+    /**
+ * PUT /leads/{id}
+ */
+public function update(Request $request, $id)
+{
+    $query = Lead::where('id', $id);
 
-        if (auth()->user()->role->level > 2) {
-            $query->where('created_by', auth()->id());
-        }
-
-        $lead = $query->firstOrFail();
-
-        $request->validate([
-            'type' => 'nullable|exists:lead_types,id',
-        ]);
-
-        $lead->update($request->only([
-            'client_name',
-            'care_of',
-            'email',
-            'type',
-            'source',
-            'status',
-            'value',
-            'date',
-            'company',
-            'address',
-            'job_address',
-            'phone',
-        ]));
-
-        return response()->json([
-            'message' => 'Lead updated successfully',
-            'data' => $lead->load('leadType')
-        ]);
+    if (auth()->user()->role->level > 2) {
+        $query->where('created_by', auth()->id());
     }
+
+    $lead = $query->firstOrFail();
+
+    $request->validate([
+        'type' => 'nullable|exists:lead_types,id',
+    ]);
+
+    // Update payload array
+    $updateData = $request->only([
+        'client_name',
+        'care_of',
+        'email',
+        'type',
+        'source',
+        'status',
+        'value',
+        'date',
+        'company',
+        'address',
+        'job_address',
+        'phone',
+    ]);
+
+    // Model update
+    $lead->update($updateData);
+
+    // Dynamic Activity Logging ("Name changed from X to Y" format)
+    if ($lead->gjob) {
+        $changes = $lead->getChanges();
+        
+        // Exclude internal updated_at field from log list
+        unset($changes['updated_at']);
+
+        if (!empty($changes)) {
+            $formattedChanges = [];
+
+            foreach ($changes as $field => $newValue) {
+                $oldValue = $lead->getOriginal($field) ?? 'N/A';
+                $displayNewValue = $newValue ?? 'N/A';
+                
+                // Human-readable field names (e.g., client_name -> Client Name)
+                $fieldName = title_case(str_replace('_', ' ', $field));
+
+                $formattedChanges[] = "{$fieldName}: '{$oldValue}' → '{$displayNewValue}'";
+            }
+
+            $description = "Lead updated by " . auth()->user()->name . " (" . implode(', ', $formattedChanges) . ")";
+
+            $lead->gjob->activities()->create([
+                'user_id'     => auth()->id(),
+                'action'      => 'Lead Updated',
+                'description' => $description,
+            ]);
+        }
+    }
+
+    return response()->json([
+        'message' => 'Lead updated successfully',
+        'data'    => $lead->load('leadType')
+    ]);
+}
     /**
      * DELETE /leads/{id}
      */
