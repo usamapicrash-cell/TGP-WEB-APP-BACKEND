@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use App\Models\LeadType;
 use App\Models\Email;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class LeadController extends Controller
 {
@@ -235,26 +236,26 @@ public function update(Request $request, $id)
         unset($changes['updated_at']);
 
         if (!empty($changes)) {
-            $formattedChanges = [];
+                $formattedChanges = [];
 
-            foreach ($changes as $field => $newValue) {
-                $oldValue = $lead->getOriginal($field) ?? 'N/A';
-                $displayNewValue = $newValue ?? 'N/A';
-                
-                // Human-readable field names (e.g., client_name -> Client Name)
-                $fieldName = title_case(str_replace('_', ' ', $field));
+                foreach ($changes as $field => $newValue) {
+                    $oldValue = $lead->getOriginal($field) ?? 'N/A';
+                    $displayNewValue = $newValue ?? 'N/A';
+                    
+                    // title_case() ki jagah Str::title() use karein
+                    $fieldName = Str::title(str_replace('_', ' ', $field));
 
-                $formattedChanges[] = "{$fieldName}: '{$oldValue}' → '{$displayNewValue}'";
+                    $formattedChanges[] = "{$fieldName}: '{$oldValue}' → '{$displayNewValue}'";
+                }
+
+                $description = "Lead updated by " . auth()->user()->name . " (" . implode(', ', $formattedChanges) . ")";
+
+                $lead->gjob->activities()->create([
+                    'user_id'     => auth()->id(),
+                    'action'      => 'Lead Updated',
+                    'description' => $description,
+                ]);
             }
-
-            $description = "Lead updated by " . auth()->user()->name . " (" . implode(', ', $formattedChanges) . ")";
-
-            $lead->gjob->activities()->create([
-                'user_id'     => auth()->id(),
-                'action'      => 'Lead Updated',
-                'description' => $description,
-            ]);
-        }
     }
 
     return response()->json([
