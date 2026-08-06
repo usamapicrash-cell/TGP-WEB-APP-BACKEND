@@ -207,6 +207,8 @@ class LeadController extends Controller
 
         $lead->update($request->only([
             'client_name',
+            'care_of',
+            'email',
             'type',
             'source',
             'status',

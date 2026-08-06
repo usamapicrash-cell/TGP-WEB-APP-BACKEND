@@ -9,18 +9,8 @@ Route::get('/', function () {
 });
 
 
-Route::get('/storage/job-media/{filename}', function ($filename) {
-    $path = 'job-media/' . $filename;
-
-    if (!Storage::disk('public')->exists($path)) {
-        abort(404);
-    }
-
-    return Storage::disk('public')->response($path);
-});
-
-Route::get('/storage/email_attachments/{filename}', function ($filename) {
-    $path = 'email_attachments/' . $filename;
+Route::get('/storage/{folder}/{filename}', function ($folder, $filename) {
+    $path = $folder . '/' . $filename;
 
     if (!Storage::disk('public')->exists($path)) {
         abort(404);

@@ -12,6 +12,7 @@ class Lead extends Model
     protected $fillable = [
         'created_by',
         'client_name',
+        'care_of', // <-- Added
         'email',
         'type',
         'source',
