@@ -355,11 +355,10 @@ class AppointmentController extends Controller
                 'sender_email'   => $sender,
             ]);
         } else {
-            Log::warning('Schedule Email Skipped: No GJob found for lead.', [
-                'lead_id' => $lead->id
-            ]);
-        }
+                Log::warning('Schedule Email Skipped: No GJob found for lead.', [
+                    'lead_id' => $lead->id
+                ]);
             }
-        }
+            }
     }
 }
