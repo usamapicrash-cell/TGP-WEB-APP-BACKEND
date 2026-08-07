@@ -9,6 +9,7 @@ use App\Models\Email;
 use App\Mail\ScheduleConfirmationMail;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log; // Controller ke top par import zaroori hai
 
 class AppointmentController extends Controller
 {
@@ -309,8 +310,13 @@ class AppointmentController extends Controller
     private function sendScheduleEmail(Appointment $appointment, string $typeLabel)
     {
         $appointment->loadMissing(['lead.gjob.glazier']);
-        $lead = $appointment->lead;
 
+        $lead = $appointment->lead;
+        Log::info('Schedule Email Process Initiated', [
+            'appointment_id' => $appointment->id,
+            'type'           => $typeLabel,
+            'lead_id'        => $lead->id ?? null,
+        ]);
         if ($lead && !empty($lead->email ?? $lead->customer_email)) {
             $customerEmail = $lead->email ?? $lead->customer_email;
             $gjob = $lead->gjob;
