@@ -206,7 +206,7 @@ class AppointmentController extends Controller
         return response()->json($appointment->load('lead.gjob.glazier'), 201);
     }
 
-    public function site_visit_update(Request $request, $id)
+       public function site_visit_update(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [
             'title'       => 'required|string|max:255',
@@ -230,6 +230,12 @@ class AppointmentController extends Controller
                 return response()->json(['message' => 'Appointment not found.'], 404);
             }
 
+            // 1. Purani date/time aur status capture karein
+            $oldDate   = $appointment->date;
+            $oldTime   = $appointment->time;
+            $oldStatus = $appointment->status;
+
+            // 2. Update record
             $appointment->update([
                 'title'       => $request->title,
                 'date'        => $request->date,
@@ -241,11 +247,18 @@ class AppointmentController extends Controller
                 'icon'        => $request->icon ?? 'bi-chat-dots',
             ]);
 
-            $typeLabel = ucfirst(str_replace('_', ' ', $request->type)) . ' Updated';
-            $this->sendScheduleEmail($appointment, $typeLabel);
+            // 3. Condition Checks
+            $isDateTimeChanged = ($oldDate !== $request->date) || ($oldTime !== $request->time);
+            $isStatusOnlyChange = ($oldStatus !== $request->status) && !$isDateTimeChanged;
+
+            // Email tabhi bhejein jab date/time change ho aur status cancelled/completed NA ho
+            if ($isDateTimeChanged && !in_array(strtolower($request->status), ['completed', 'cancelled'])) {
+                $typeLabel = ucfirst(str_replace('_', ' ', $request->type)) . ' Rescheduled';
+                $this->sendScheduleEmail($appointment, $typeLabel);
+            }
 
             return response()->json([
-                'message' => 'Site visit updated and confirmation email sent!',
+                'message' => 'Site visit updated successfully!',
                 'data'    => $appointment
             ], 200);
 
