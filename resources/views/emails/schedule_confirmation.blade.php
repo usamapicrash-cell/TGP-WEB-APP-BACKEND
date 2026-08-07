@@ -1,26 +1,28 @@
-@component('mail::message')
-# Dear {{ $job->customer_name ?? 'Valued Customer' }},
+<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+    <h2>Dear {{ $customerName }},</h2>
 
-Your **{{ $type }}** has been successfully scheduled. Please find the details below:
+    <p>Your <strong>{{ $type }}</strong> has been successfully scheduled. Please find the details below:</p>
 
-@component('mail::panel')
-**Reference Code:** {{ $job->reference_code }}  
-**Scheduled Date & Time:** {{ \Carbon\Carbon::parse($scheduleDate)->format('F j, Y - g:i A') }}  
-@if(!empty($job->site_address))
-**Location / Address:** {{ $job->site_address }}  
-@endif
-@if($job->glazier)
-**Assigned Specialist:** {{ $job->glazier->name }}  
-@endif
-@if(!empty($notes))
-**Additional Notes:** {{ $notes }}  
-@endif
-@endcomponent
+    <div style="background-color: #f8f9fa; border-left: 4px solid #6c5ce7; padding: 15px; margin: 20px 0; border-radius: 4px;">
+        <p style="margin: 5px 0;"><strong>Reference Code:</strong> {{ $referenceCode }}</p>
+        <p style="margin: 5px 0;"><strong>Scheduled Date & Time:</strong> {{ \Carbon\Carbon::parse($scheduleDate)->format('F j, Y - g:i A') }}</p>
+        
+        @if(!empty($siteAddress))
+            <p style="margin: 5px 0;"><strong>Location / Address:</strong> {{ $siteAddress }}</p>
+        @endif
 
-Please review the schedule above and let us know if this date and time are convenient for you or if you need to make any adjustments.
+        @if(!empty($glazierName))
+            <p style="margin: 5px 0;"><strong>Assigned Specialist:</strong> {{ $glazierName }}</p>
+        @endif
 
-If everything looks good, no further action is required. We look forward to visiting your site.
+        @if(!empty($notes))
+            <p style="margin: 5px 0;"><strong>Additional Notes:</strong> {{ $notes }}</p>
+        @endif
+    </div>
 
-Thanks,  
-**{{ config('app.name') }} Team**
-@endcomponent
+    <p>Please review the schedule above and let us know if this date and time are convenient for you or if you need to make any adjustments.</p>
+
+    <p>If everything looks good, no further action is required. We look forward to visiting your site.</p>
+
+    <p style="margin-top: 25px;">Thanks,<br><strong>The Glass People Team</strong></p>
+</div>

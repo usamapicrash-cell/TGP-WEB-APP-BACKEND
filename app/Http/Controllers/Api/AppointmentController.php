@@ -307,58 +307,74 @@ class AppointmentController extends Controller
     /**
      * Private Helper function to trigger Mail and log in `emails` table.
      */
-    private function sendScheduleEmail(Appointment $appointment, string $typeLabel)
+   private function sendScheduleEmail(Appointment $appointment, string $typeLabel)
     {
-        $appointment->loadMissing(['lead.gjob.glazier']);
+        try {
+            $appointment->loadMissing(['lead.gjob.glazier']);
+            $lead = $appointment->lead;
 
-        $lead = $appointment->lead;
-        Log::info('Schedule Email Process Initiated', [
-            'appointment' => $appointment,
-            'type'           => $typeLabel,
-            'lead'        => $lead,
-        ]);
-        if ($lead && !empty($lead->email ?? $lead->customer_email)) {
-            $customerEmail = $lead->email ?? $lead->customer_email;
+            if (!$lead) {
+                Log::warning('Schedule Email Failed: No associated Lead.', ['appointment_id' => $appointment->id]);
+                return;
+            }
+
+            $customerEmail = $lead->email ?? $lead->customer_email ?? null;
+            if (empty($customerEmail)) {
+                Log::warning('Schedule Email Skipped: Customer email missing.', ['lead_id' => $lead->id]);
+                return;
+            }
+
             $gjob = $lead->gjob;
 
-            if ($gjob) {
-                $sender = config('mail.from.address', env('SENDER_EMAIL', 'sales@theglasspeople.com'));
-                $scheduleDateTime = $appointment->date . ' ' . $appointment->time;
-                $subject = "Confirmation: {$typeLabel} Scheduled - Ref: {$lead->order_no}";
+            // Dynamic Reference Code Extraction (Fallbacks: job_number -> order_no -> lead_number)
+            $refCode = $gjob->job_number 
+                ?? $lead->order_no 
+                ?? $lead->lead_number 
+                ?? "LD-{$lead->id}";
 
-                $mailable = new ScheduleConfirmationMail(
-                    $gjob,
-                    $typeLabel,
-                    $scheduleDateTime,
-                    $appointment->description
-                );
+            $mailData = [
+                'customer_name'  => $lead->client_name ?? 'Valued Customer',
+                'reference_code' => $refCode,
+                'type'           => $typeLabel,
+                'schedule_date'  => $appointment->date . ' ' . $appointment->time,
+                'site_address'   => $lead->address ?? $lead->job_address ?? null,
+                'glazier_name'   => $gjob->glazier->name ?? null,
+                'notes'          => $appointment->description,
+            ];
 
-                $htmlContent = $mailable->render();
+            $sender = env('SENDER_EMAIL', 'sales@theglasspeople.com');
+            $subject = "Confirmation: {$typeLabel} Scheduled - Ref: {$refCode}";
 
-                // Send Email
-                Mail::to($customerEmail)->send($mailable);
+            // 1. Mailable Instance
+            $mailable = new ScheduleConfirmationMail($mailData);
 
-                // Log into `emails` table for inbox/history
-                Email::create([
-                    'sender'    => $sender,
-                    'receiver'  => $customerEmail,
-                    'subject'   => $subject,
-                    'html_body' => $htmlContent,
-                    'type'      => 'sent',
-                    'is_read'   => true,
-                ]);
+            // 2. Send Mail
+            Mail::to($customerEmail)->send($mailable);
 
-                Log::info('Schedule Email Sent & Saved to DB Successfully', [
-                'appointment_id' => $appointment->id,
-                'reference_code' => $gjob->reference_code,
-                'customer_email' => $customerEmail,
-                'sender_email'   => $sender,
+            // 3. Render HTML Body for DB Log
+            $htmlContent = $mailable->render();
+
+            // 4. Record Save in Email History
+            Email::create([
+                'sender'    => $sender,
+                'receiver'  => $customerEmail,
+                'subject'   => $subject,
+                'html_body' => $htmlContent,
+                'type'      => 'sent',
+                'is_read'   => true,
             ]);
-        } else {
-                Log::warning('Schedule Email Skipped: No GJob found for lead.', [
-                    'lead_id' => $lead->id
-                ]);
-            }
-            }
+
+            Log::info('Schedule Confirmation Email Sent & Saved to DB', [
+                'appointment_id' => $appointment->id,
+                'reference_code' => $refCode,
+                'customer_email' => $customerEmail,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Schedule Email Sending Error: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+        }
     }
 }
