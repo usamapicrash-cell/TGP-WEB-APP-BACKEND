@@ -1,15 +1,17 @@
 <?php
-
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Appointment;
+use App\Models\Lead;
+use App\Models\Email;
+use App\Mail\ScheduleConfirmationMail;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
+
 class AppointmentController extends Controller
 {
-
-    
     public function glazier_appointments(Request $request)
     {
         try {
@@ -38,7 +40,6 @@ class AppointmentController extends Controller
             ], 200);
 
         } catch (\Exception $e) {
-            // Return clear error for debugging
             return response()->json([
                 'success' => false, 
                 'error' => $e->getMessage(),
@@ -48,10 +49,8 @@ class AppointmentController extends Controller
         }
     }
     
-    // Optional: create company manually (only super admin)
     public function index($leadId)
     {
-        // Yahan hum nested data mangwa rahe hain: Appointment -> Lead -> GJob
         $appointments = Appointment::with(['lead.gjob.glazier']) 
             ->where('lead_id', $leadId)
             ->orderBy('date', 'asc')
@@ -64,32 +63,24 @@ class AppointmentController extends Controller
     public function all_site_visit_get(Request $request)
     {
         try {
-            // 1. Base Query with relations (Removing withSum to avoid 500 error)
             $query = Appointment::with(['lead.gjob.glazier', 'lead.payments']);
             
             // Default: Aaj ki date se start hoga
             $query->whereDate('date', '>=', now()->toDateString());
 
-            // 2. Dynamic Filter (Type)
-            // if ($request->has('q')) {
-            //     $query->where('type', $request->q);
-            // } else {
-            //     $query->where('type', 'site_visit');
-            // }
-
-            // 3. Status Filter
+            // Status Filter
             if ($request->filled('status')) {
                 $query->where('status', $request->status);
             }
 
-            // 4. Glazier Filter
+            // Glazier Filter
             if ($request->filled('glazier_id')) {
                 $query->whereHas('lead.gjob', function($q) use ($request) {
                     $q->where('glazier_id', $request->glazier_id);
                 });
             }
 
-            // 5. Search Filter
+            // Search Filter
             if ($request->filled('search')) {
                 $searchTerm = $request->search;
                 $query->where(function($q) use ($searchTerm) {
@@ -101,7 +92,7 @@ class AppointmentController extends Controller
                 });
             }
 
-            // 6. Auth Filter (Safe Check)
+            // Auth Filter
             $user = auth()->user();
             if ($user && $user->role && $user->role->level > 2) {
                 $query->whereHas('lead', function($q) use ($user) {
@@ -116,17 +107,14 @@ class AppointmentController extends Controller
             return response()->json($appointments);
 
         } catch (\Exception $e) {
-            // Taake aapko console mein asli error nazar aaye
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
     
     public function site_visit_get($leadId)
     {
-        // Yahan hum nested data mangwa rahe hain: Appointment -> Lead -> GJob
         $appointments = Appointment::with(['lead.gjob.glazier']) 
             ->where('lead_id', $leadId)
-            // ->where('type', 'site_visit')
             ->orderBy('date', 'asc')
             ->orderBy('time', 'asc')
             ->get();
@@ -134,28 +122,30 @@ class AppointmentController extends Controller
         return response()->json($appointments);
     }
 
-    // Controller Method for Storing
+    // Site Visit Store
     public function site_visit_store(Request $request, $leadId)
     {
         $validated = $request->validate([
-            'title' => 'required|string|max:255',
-            'date' => 'required|date',
-            'time' => 'required',
-            'end_time' => 'nullable',
-            'status' => 'required|string',
+            'title'       => 'required|string|max:255',
+            'date'        => 'required|date',
+            'time'        => 'required',
+            'end_time'    => 'nullable',
+            'status'      => 'required|string',
             'description' => 'nullable|string',
-            'icon' => 'nullable|string',
+            'icon'        => 'nullable|string',
         ]);
 
-        // Forcefully setting lead_id and type
         $validated['lead_id'] = $leadId;
         $validated['type'] = 'site_visit';
 
         $appointment = Appointment::create($validated);
 
+        // Send Email and Log DB Record
+        $this->sendScheduleEmail($appointment, 'Site Visit');
+
         return response()->json([
-            'message' => 'Site visit logged successfully',
-            'data' => $appointment
+            'message' => 'Site visit logged successfully and email sent.',
+            'data'    => $appointment
         ], 201);
     }
 
@@ -165,11 +155,10 @@ class AppointmentController extends Controller
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'type'  => 'required|in:site_visit,appointment',
-            'date'  => 'required|date|after_or_equal:today', // Past date block ho jayegi
+            'date'  => 'required|date|after_or_equal:today',
             'time'  => 'required',
         ]);
 
-        // --- CHECK: Agar date AAJ ki hai, toh guzra hua TIME block karein ---
         if ($validated['date'] == date('Y-m-d')) {
             $currentTime = date('H:i:s');
             if ($validated['time'] < $currentTime) {
@@ -179,13 +168,11 @@ class AppointmentController extends Controller
             }
         }
 
-        $lead = \App\Models\Lead::with('gjob')->findOrFail($leadId);
+        $lead = Lead::with('gjob')->findOrFail($leadId);
         $glazierId = $lead->gjob->glazier_id ?? null; 
 
         if ($glazierId) {
             $requestedTime = $validated['time'];
-            
-            // 2-hour gap logic (Same as before)
             $startTimeLimit = date('H:i:s', strtotime($requestedTime . ' -2 hours + 1 minute'));
             $endTimeLimit = date('H:i:s', strtotime($requestedTime . ' +2 hours - 1 minute'));
 
@@ -204,7 +191,6 @@ class AppointmentController extends Controller
             }
         }
 
-        // Appointment Create
         $appointment = Appointment::create([
             'lead_id' => $leadId,
             'title'   => $validated['title'],
@@ -213,13 +199,14 @@ class AppointmentController extends Controller
             'time'    => $validated['time'],
         ]);
 
+        $typeLabel = ucfirst(str_replace('_', ' ', $validated['type']));
+        $this->sendScheduleEmail($appointment, $typeLabel);
+
         return response()->json($appointment->load('lead.gjob.glazier'), 201);
     }
 
-
     public function site_visit_update(Request $request, $id)
     {
-        // 1. Validation Rules
         $validator = Validator::make($request->all(), [
             'title'       => 'required|string|max:255',
             'date'        => 'required|date',
@@ -232,22 +219,16 @@ class AppointmentController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'errors' => $validator->errors()
-            ], 422);
+            return response()->json(['errors' => $validator->errors()], 422);
         }
 
         try {
-            // 2. Find the Appointment
             $appointment = Appointment::find($id);
 
             if (!$appointment) {
-                return response()->json([
-                    'message' => 'Appointment not found.'
-                ], 404);
+                return response()->json(['message' => 'Appointment not found.'], 404);
             }
 
-            // 3. Update Data
             $appointment->update([
                 'title'       => $request->title,
                 'date'        => $request->date,
@@ -259,8 +240,11 @@ class AppointmentController extends Controller
                 'icon'        => $request->icon ?? 'bi-chat-dots',
             ]);
 
+            $typeLabel = ucfirst(str_replace('_', ' ', $request->type)) . ' Updated';
+            $this->sendScheduleEmail($appointment, $typeLabel);
+
             return response()->json([
-                'message' => 'Site visit updated successfully!',
+                'message' => 'Site visit updated and confirmation email sent!',
                 'data'    => $appointment
             ], 200);
 
@@ -275,48 +259,35 @@ class AppointmentController extends Controller
     public function destroy($id)
     {
         try {
-            // Appointment find karein
             $appointment = Appointment::find($id);
 
-            // Agar appointment nahi milta
             if (!$appointment) {
-                return response()->json([
-                    'message' => 'Appointment not found.'
-                ], 404);
+                return response()->json(['message' => 'Appointment not found.'], 404);
             }
 
-            // Delete karein
             $appointment->delete();
 
-            return response()->json([
-                'message' => 'Appointment deleted successfully.'
-            ], 200);
+            return response()->json(['message' => 'Appointment deleted successfully.'], 200);
 
         } catch (\Exception $e) {
-            // Kisi bhi error ki surat mein
             return response()->json([
                 'message' => 'Failed to delete appointment.',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage()
             ], 500);
         }
     }
 
     public function updateStatus(Request $request, $id)
     {
-        // 1. Validation
         $request->validate([
             'status' => 'required|in:pending,scheduled,completed,cancelled',
         ]);
 
         try {
-            // 2. Find Appointment
             $appointment = Appointment::findOrFail($id);
-
-            // 3. Update Status
             $appointment->status = $request->status;
             $appointment->save();
 
-            // 4. Return Response
             return response()->json([
                 'success' => true,
                 'message' => 'Status updated successfully',
@@ -329,6 +300,48 @@ class AppointmentController extends Controller
                 'message' => 'Failed to update status',
                 'error'   => $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Private Helper function to trigger Mail and log in `emails` table.
+     */
+    private function sendScheduleEmail(Appointment $appointment, string $typeLabel)
+    {
+        $appointment->loadMissing(['lead.gjob.glazier']);
+        $lead = $appointment->lead;
+
+        if ($lead && !empty($lead->email ?? $lead->customer_email)) {
+            $customerEmail = $lead->email ?? $lead->customer_email;
+            $gjob = $lead->gjob;
+
+            if ($gjob) {
+                $sender = config('mail.from.address', env('SENDER_EMAIL', 'sales@theglasspeople.com'));
+                $scheduleDateTime = $appointment->date . ' ' . $appointment->time;
+                $subject = "Confirmation: {$typeLabel} Scheduled - Ref: {$lead->order_no}";
+
+                $mailable = new ScheduleConfirmationMail(
+                    $gjob,
+                    $typeLabel,
+                    $scheduleDateTime,
+                    $appointment->description
+                );
+
+                $htmlContent = $mailable->render();
+
+                // Send Email
+                Mail::to($customerEmail)->send($mailable);
+
+                // Log into `emails` table for inbox/history
+                Email::create([
+                    'sender'    => $sender,
+                    'receiver'  => $customerEmail,
+                    'subject'   => $subject,
+                    'html_body' => $htmlContent,
+                    'type'      => 'sent',
+                    'is_read'   => true,
+                ]);
+            }
         }
     }
 }
