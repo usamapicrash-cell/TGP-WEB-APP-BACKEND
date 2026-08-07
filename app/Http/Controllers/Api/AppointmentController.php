@@ -313,9 +313,9 @@ class AppointmentController extends Controller
 
         $lead = $appointment->lead;
         Log::info('Schedule Email Process Initiated', [
-            'appointment_id' => $appointment->id,
+            'appointment' => $appointment,
             'type'           => $typeLabel,
-            'lead_id'        => $lead->id ?? null,
+            'lead'        => $lead,
         ]);
         if ($lead && !empty($lead->email ?? $lead->customer_email)) {
             $customerEmail = $lead->email ?? $lead->customer_email;
@@ -347,6 +347,18 @@ class AppointmentController extends Controller
                     'type'      => 'sent',
                     'is_read'   => true,
                 ]);
+
+                Log::info('Schedule Email Sent & Saved to DB Successfully', [
+                'appointment_id' => $appointment->id,
+                'reference_code' => $gjob->reference_code,
+                'customer_email' => $customerEmail,
+                'sender_email'   => $sender,
+            ]);
+        } else {
+            Log::warning('Schedule Email Skipped: No GJob found for lead.', [
+                'lead_id' => $lead->id
+            ]);
+        }
             }
         }
     }
