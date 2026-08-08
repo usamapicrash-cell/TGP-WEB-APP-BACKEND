@@ -127,13 +127,15 @@ class EmailController extends Controller
                     $message->attach($filePath);
                 }
 
-                // Message-ID generate / extract karein
+                // Message-ID extract from Symfony Headers
                 $symfonyMessage = $message->getSymfonyMessage();
-                $sentMessageId = $symfonyMessage->getMessageId(); 
-                // Result format e.g., "<random_hash@domain.com>"
+                if (!$symfonyMessage->getHeaders()->has('Message-ID')) {
+                    $symfonyMessage->generateMessageId();
+                }
+                $sentMessageId = $symfonyMessage->getHeaders()->getHeaderBody('Message-ID');
             });
 
-            // Clean message ID format (agar brackets '<>' ke sath aaye to clean kar lein)
+            // Clean message ID format (brackets '<>' remove kar dein)
             if ($sentMessageId) {
                 $sentMessageId = trim($sentMessageId, '<>');
             }
@@ -146,7 +148,7 @@ class EmailController extends Controller
                 'html_body'  => $htmlBody,
                 'type'       => 'sent',
                 'is_read'    => true,
-                'message_id' => $sentMessageId // <-- Yahan Message-ID save ho rahi hai
+                'message_id' => $sentMessageId
             ]);
 
             // 4. Attachments ko DB mein link karein
