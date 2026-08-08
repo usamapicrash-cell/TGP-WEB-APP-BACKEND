@@ -82,101 +82,89 @@ class EmailController extends Controller
      * Dashboard se manually email bhejna (Attachments ke sath)
      */
     public function sendEmail(Request $request)
-    {
-        $request->validate([
-            'lead_id' => 'required|exists:leads,id',
-            'to'      => 'required|email',
-            'subject' => 'required|string',
-            'body'    => 'required|string', // HTML body from Editor
-            'files.*' => 'nullable|file|max:10240', // 10MB Limit per file
-        ]);
+{
+    $request->validate([
+        'lead_id' => 'required|exists:leads,id',
+        'to'      => 'required|email',
+        'subject' => 'required|string',
+        'body'    => 'required|string',
+        'files.*' => 'nullable|file|max:10240',
+    ]);
 
-        $sender = env('SENDER_EMAIL', 'sales@theglasspeople.com');
-        $htmlBody = "<html><body><p>" . nl2br($request->body) . "</p></body></html>";
+    $sender = env('SENDER_EMAIL', 'sales@theglasspeople.com');
+    $htmlBody = "<html><body><p>" . nl2br($request->body) . "</p></body></html>";
 
-        $attachmentsForMail = [];
-        $uploadedAttachments = [];
+    $attachmentsForMail = [];
+    $uploadedAttachments = [];
 
-        // 1. Files ko temporary store karein
-        if ($request->hasFile('files')) {
-            foreach ($request->file('files') as $file) {
-                $path = $file->store('email_attachments', 'public');
+    // 1. Files ko temporary store karein
+    if ($request->hasFile('files')) {
+        foreach ($request->file('files') as $file) {
+            $path = $file->store('email_attachments', 'public');
 
-                $uploadedAttachments[] = [
-                    'file_name' => $file->getClientOriginalName(),
-                    'file_path' => $path,
-                    'file_type' => $file->getMimeType(),
-                    'file_size' => $file->getSize(),
-                ];
+            $uploadedAttachments[] = [
+                'file_name' => $file->getClientOriginalName(),
+                'file_path' => $path,
+                'file_type' => $file->getMimeType(),
+                'file_size' => $file->getSize(),
+            ];
 
-                $attachmentsForMail[] = storage_path('app/public/' . $path);
-            }
-        }
-
-        try {
-            $sentMessageId = null;
-
-            // 2. Email Send karein aur Message-ID capture karein
-            Mail::send([], [], function ($message) use ($request, $sender, $attachmentsForMail, $htmlBody, &$sentMessageId) {
-                $message->to($request->to)
-                    ->from($sender, 'The Glass People')
-                    ->subject($request->subject)
-                    ->html($htmlBody);
-
-                foreach ($attachmentsForMail as $filePath) {
-                    $message->attach($filePath);
-                }
-
-                // Message-ID extract from Symfony Headers
-                $symfonyMessage = $message->getSymfonyMessage();
-                if (!$symfonyMessage->getHeaders()->has('Message-ID')) {
-                    $symfonyMessage->generateMessageId();
-                }
-                $sentMessageId = $symfonyMessage->getHeaders()->getHeaderBody('Message-ID');
-            });
-
-            // Clean message ID format (brackets '<>' remove kar dein)
-            if ($sentMessageId) {
-                $sentMessageId = trim($sentMessageId, '<>');
-            }
-
-            // 3. Database mein record create karein MESSAGE_ID ke sath
-            $emailRecord = Email::create([
-                'sender'     => $sender,
-                'receiver'   => $request->to,
-                'subject'    => $request->subject,
-                'html_body'  => $htmlBody,
-                'type'       => 'sent',
-                'is_read'    => true,
-                'message_id' => $sentMessageId
-            ]);
-
-            // 4. Attachments ko DB mein link karein
-            foreach ($uploadedAttachments as $att) {
-                EmailAttachment::create([
-                    'email_id'  => $emailRecord->id,
-                    'file_name' => $att['file_name'],
-                    'file_path' => $att['file_path'],
-                    'file_type' => $att['file_type'],
-                    'file_size' => $att['file_size'],
-                ]);
-            }
-
-            \Log::info('Email sent successfully to: ' . $request->to . ' with Message-ID: ' . $sentMessageId);
-
-            // 5. Sync Jobs Dispatch Karein
-            SyncEmailsJob::dispatchSync();
-
-            return response()->json(['status' => 'success', 'message' => 'Email sent successfully']);
-
-        } catch (\Exception $e) {
-            \Log::error('Email Sending Failed', [
-                'error' => $e->getMessage(),
-                'file'  => $e->getFile(),
-                'line'  => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
+            $attachmentsForMail[] = storage_path('app/public/' . $path);
         }
     }
+
+    try {
+        // 2. Email Send karein aur SentMessage instance hold karein
+        /** @var \Illuminate\Mail\SentMessage $sentMessage */
+        $sentMessage = Mail::send([], [], function ($message) use ($request, $sender, $attachmentsForMail, $htmlBody) {
+            $message->to($request->to)
+                ->from($sender, 'The Glass People')
+                ->subject($request->subject)
+                ->html($htmlBody);
+
+            foreach ($attachmentsForMail as $filePath) {
+                $message->attach($filePath);
+            }
+        });
+
+        // 3. Exact Sent Message ID extract karein (Transport response se)
+        $sentMessageId = null;
+        if ($sentMessage && method_exists($sentMessage, 'getMessageId')) {
+            $sentMessageId = trim($sentMessage->getMessageId(), '<>');
+        }
+
+        // 4. Sirf EK BAR record create karein UNIQUE Message-ID ke sath
+        $emailRecord = Email::create([
+            'sender'     => $sender,
+            'receiver'   => $request->to,
+            'subject'    => $request->subject,
+            'html_body'  => $htmlBody,
+            'type'       => 'sent',
+            'is_read'    => true,
+            'message_id' => $sentMessageId
+        ]);
+
+        // 5. Attachments DB link
+        foreach ($uploadedAttachments as $att) {
+            EmailAttachment::create([
+                'email_id'  => $emailRecord->id,
+                'file_name' => $att['file_name'],
+                'file_path' => $att['file_path'],
+                'file_type' => $att['file_type'],
+                'file_size' => $att['file_size'],
+            ]);
+        }
+
+        \Log::info('Email sent with Message-ID: ' . $sentMessageId);
+
+        // 6. Ab sync karein (Pehle se DB mein exact message_id majood hone se job duplicate ignore kar dega)
+        SyncEmailsJob::dispatchSync();
+
+        return response()->json(['status' => 'success', 'message' => 'Email sent successfully']);
+
+    } catch (\Exception $e) {
+        \Log::error('Email Sending Failed: ' . $e->getMessage());
+        return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
+    }
+}
 }
