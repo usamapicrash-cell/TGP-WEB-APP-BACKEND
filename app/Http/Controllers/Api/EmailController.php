@@ -94,38 +94,30 @@ class EmailController extends Controller
         $sender = env('SENDER_EMAIL', 'sales@theglasspeople.com');
         $htmlBody = "<html><body><p>" . nl2br($request->body) . "</p></body></html>";
 
-        // 1. Database mein record create karein
-        $emailRecord = Email::create([
-            'sender'    => $sender,
-            'receiver'  => $request->to,
-            'subject'   => $request->subject,
-            'html_body' => $htmlBody,
-            'type'      => 'sent',
-            'is_read'   => true
-        ]);
-
         $attachmentsForMail = [];
+        $uploadedAttachments = [];
 
-        // 2. Attachments handle karein (Agar hain)
+        // 1. Files ko temporary store karein
         if ($request->hasFile('files')) {
             foreach ($request->file('files') as $file) {
                 $path = $file->store('email_attachments', 'public');
-                
-                EmailAttachment::create([
-                    'email_id'  => $emailRecord->id,
+
+                $uploadedAttachments[] = [
                     'file_name' => $file->getClientOriginalName(),
                     'file_path' => $path,
                     'file_type' => $file->getMimeType(),
                     'file_size' => $file->getSize(),
-                ]);
+                ];
 
                 $attachmentsForMail[] = storage_path('app/public/' . $path);
             }
         }
 
-        // 3. Actual Mail send karein
         try {
-            Mail::send([], [], function ($message) use ($request, $sender, $attachmentsForMail, $htmlBody) {
+            $sentMessageId = null;
+
+            // 2. Email Send karein aur Message-ID capture karein
+            Mail::send([], [], function ($message) use ($request, $sender, $attachmentsForMail, $htmlBody, &$sentMessageId) {
                 $message->to($request->to)
                     ->from($sender, 'The Glass People')
                     ->subject($request->subject)
@@ -134,15 +126,52 @@ class EmailController extends Controller
                 foreach ($attachmentsForMail as $filePath) {
                     $message->attach($filePath);
                 }
+
+                // Message-ID generate / extract karein
+                $symfonyMessage = $message->getSymfonyMessage();
+                $sentMessageId = $symfonyMessage->getMessageId(); 
+                // Result format e.g., "<random_hash@domain.com>"
             });
-            \Log::info('Email sent successfully to: ' . $request->to . $sender);
+
+            // Clean message ID format (agar brackets '<>' ke sath aaye to clean kar lein)
+            if ($sentMessageId) {
+                $sentMessageId = trim($sentMessageId, '<>');
+            }
+
+            // 3. Database mein record create karein MESSAGE_ID ke sath
+            $emailRecord = Email::create([
+                'sender'     => $sender,
+                'receiver'   => $request->to,
+                'subject'    => $request->subject,
+                'html_body'  => $htmlBody,
+                'type'       => 'sent',
+                'is_read'    => true,
+                'message_id' => $sentMessageId // <-- Yahan Message-ID save ho rahi hai
+            ]);
+
+            // 4. Attachments ko DB mein link karein
+            foreach ($uploadedAttachments as $att) {
+                EmailAttachment::create([
+                    'email_id'  => $emailRecord->id,
+                    'file_name' => $att['file_name'],
+                    'file_path' => $att['file_path'],
+                    'file_type' => $att['file_type'],
+                    'file_size' => $att['file_size'],
+                ]);
+            }
+
+            \Log::info('Email sent successfully to: ' . $request->to . ' with Message-ID: ' . $sentMessageId);
+
+            // 5. Sync Jobs Dispatch Karein
             SyncEmailsJob::dispatchSync();
+
             return response()->json(['status' => 'success', 'message' => 'Email sent successfully']);
+
         } catch (\Exception $e) {
             \Log::error('Email Sending Failed', [
                 'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
+                'file'  => $e->getFile(),
+                'line'  => $e->getLine(),
                 'trace' => $e->getTraceAsString()
             ]);
             return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
