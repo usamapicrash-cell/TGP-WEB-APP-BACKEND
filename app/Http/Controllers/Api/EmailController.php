@@ -22,7 +22,7 @@ class EmailController extends Controller
             'customer_email' => 'required|email'
         ]);
 
-        SyncEmailsJob::dispatch();
+        SyncEmailsJob::dispatchSync();
 
         // Is customer ki puri history (sent/received) attachments ke sath
         $emails = Email::with('attachments')
@@ -53,7 +53,7 @@ class EmailController extends Controller
         }
 
         // 2. Email sync job dispatch karein
-        SyncEmailsJob::dispatch();
+        SyncEmailsJob::dispatchSync();
 
         // 3. Query: Order No match karein LEKIN customer ki email exclude karein
         $emails = Email::with('attachments')
@@ -136,7 +136,7 @@ class EmailController extends Controller
                 }
             });
             \Log::info('Email sent successfully to: ' . $request->to . $sender);
-            SyncEmailsJob::dispatch();
+            SyncEmailsJob::dispatchSync();
             return response()->json(['status' => 'success', 'message' => 'Email sent successfully']);
         } catch (\Exception $e) {
             \Log::error('Email Sending Failed', [

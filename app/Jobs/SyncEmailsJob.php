@@ -20,7 +20,7 @@ class SyncEmailsJob implements ShouldQueue
     public function middleware()
     {
         // Ek time par sirf 1 job chalayega, duplicate overlapping nahi hone dega
-        return [new WithoutOverlapping('sync-emails-key')];
+        return [(new WithoutOverlapping('sync-emails-key'))->expireAfter(120)];
     }
 
     public function handle()
