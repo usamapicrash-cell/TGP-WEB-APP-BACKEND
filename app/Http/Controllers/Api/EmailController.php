@@ -33,61 +33,62 @@ class EmailController extends Controller
 
         return response()->json($emails);
     }
+public function emails_supplier(Request $request)
+{
+    // Frontend se 'lead_orderno' zaroori hai
+    $request->validate([
+        'lead_orderno' => 'required'
+    ]);
 
-    public function emails_supplier(Request $request)
-    {
-        // Frontend se 'lead_orderno' zaroori hai
-        $request->validate([
-            'lead_orderno' => 'required'
-        ]);
+    $orderNo = $request->lead_orderno;
 
-        $orderNo = $request->lead_orderno;
+    // 1. Lead dhoondain along with Purchase Orders aur unke Suppliers
+    $lead = Lead::with(['purchaseOrders.supplier'])
+        ->where('order_no', $orderNo)
+        ->first();
 
-        // 1. Lead dhoondain along with Purchase Orders aur unke Suppliers
-        $lead = Lead::with(['purchaseOrders.supplier'])
-            ->where('order_no', $orderNo) // Apne column ka exact naam rakhein (e.g., order_no ya id)
-            ->first();
-
-        if (!$lead) {
-            return response()->json([
-                'message' => 'Lead not found for order number: ' . $orderNo
-            ], 404);
-        }
-
-        // 2. Lead ke saare Purchase Orders se Suppliers ki unique emails nikalain
-        $supplierEmails = $lead->purchaseOrders
-            ->pluck('supplier.email')
-            ->filter()      // Null ya empty emails remove karne ke liye
-            ->unique()      // Duplicate emails remove karne ke liye
-            ->values()
-            ->toArray();
-
-        // Agar kisi PO ke sath supplier ki email attach nahi hai
-        if (empty($supplierEmails)) {
-            return response()->json([], 200);
-        }
-
-        // Email sync job dispatch karein
-        SyncEmailsJob::dispatch();
-
-        // 3. Un emails ko fetch karein jo supplierEmails me se kisi ki bhi hon AND order number match karta ho
-        $emails = Email::with('attachments')
-            // Check karein ke sender ya receiver supplier emails list mein ho
-            ->where(function ($query) use ($supplierEmails) {
-                $query->whereIn('receiver', $supplierEmails)
-                      ->orWhereIn('sender', $supplierEmails);
-            })
-            // Check karein ke Subject ya Body mein Order Number maujood ho
-            ->where(function ($query) use ($orderNo) {
-                $query->where('subject', 'LIKE', "%{$orderNo}%")
-                      ->orWhere('html_body', 'LIKE', "%{$orderNo}%")
-                      ->orWhere('text_body', 'LIKE', "%{$orderNo}%");
-            })
-            ->orderBy('created_at', 'desc')
-            ->get();
-
-        return response()->json($emails);
+    if (!$lead) {
+        return response()->json([
+            'message' => 'Lead not found for order number: ' . $orderNo
+        ], 404);
     }
+
+    // 2. Suppliers ki unique emails nikalain (agar PO attach hain)
+    $supplierEmails = $lead->purchaseOrders
+        ->pluck('supplier.email')
+        ->filter()
+        ->unique()
+        ->values()
+        ->toArray();
+
+    // Agar Lead model ke paas apni email field bhi hai, to usko bhi include kar sakte hain
+    if (!empty($lead->email)) {
+        $supplierEmails[] = $lead->email;
+    }
+
+    // Email sync job dispatch karein
+    SyncEmailsJob::dispatch();
+
+    // 3. Query start karein (Primary match: Order Number in Subject or Body)
+    $query = Email::with('attachments')
+        ->where(function ($q) use ($orderNo) {
+            $q->where('subject', 'LIKE', "%{$orderNo}%")
+              ->orWhere('html_body', 'LIKE', "%{$orderNo}%")
+              ->orWhere('text_body', 'LIKE', "%{$orderNo}%");
+        });
+
+    // 4. Agar Supplier emails maujood hain, to filter apply karein; aksar cases mein sirf order_no hi kaafi hota hai
+    if (!empty($supplierEmails)) {
+        $query->where(function ($q) use ($supplierEmails) {
+            $q->whereIn('receiver', $supplierEmails)
+              ->orWhereIn('sender', $supplierEmails);
+        });
+    }
+
+    $emails = $query->orderBy('created_at', 'desc')->get();
+
+    return response()->json($emails);
+}
 
     public function markAsRead(Email $email) {
         $email->update(['is_read' => true]);
