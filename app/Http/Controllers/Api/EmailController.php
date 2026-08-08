@@ -36,20 +36,51 @@ class EmailController extends Controller
 
     public function emails_supplier(Request $request)
     {
-        // Yahan hum lead_orderno validate kar rahe hain kyunki frontend se wahi aa raha hai
+        // Frontend se 'lead_orderno' zaroori hai
         $request->validate([
             'lead_orderno' => 'required'
         ]);
 
-        SyncEmailsJob::dispatch();
         $orderNo = $request->lead_orderno;
 
+        // 1. Lead dhoondain along with Purchase Orders aur unke Suppliers
+        $lead = Lead::with(['purchaseOrders.supplier'])
+            ->where('order_no', $orderNo) // Apne column ka exact naam rakhein (e.g., order_no ya id)
+            ->first();
+
+        if (!$lead) {
+            return response()->json([
+                'message' => 'Lead not found for order number: ' . $orderNo
+            ], 404);
+        }
+
+        // 2. Lead ke saare Purchase Orders se Suppliers ki unique emails nikalain
+        $supplierEmails = $lead->purchaseOrders
+            ->pluck('supplier.email')
+            ->filter()      // Null ya empty emails remove karne ke liye
+            ->unique()      // Duplicate emails remove karne ke liye
+            ->values()
+            ->toArray();
+
+        // Agar kisi PO ke sath supplier ki email attach nahi hai
+        if (empty($supplierEmails)) {
+            return response()->json([], 200);
+        }
+
+        // Email sync job dispatch karein
+        SyncEmailsJob::dispatch();
+
+        // 3. Un emails ko fetch karein jo supplierEmails me se kisi ki bhi hon AND order number match karta ho
         $emails = Email::with('attachments')
-            ->where(function($query) use ($orderNo) {
-                // Subject mein order number dhundo
+            // Check karein ke sender ya receiver supplier emails list mein ho
+            ->where(function ($query) use ($supplierEmails) {
+                $query->whereIn('receiver', $supplierEmails)
+                      ->orWhereIn('sender', $supplierEmails);
+            })
+            // Check karein ke Subject ya Body mein Order Number maujood ho
+            ->where(function ($query) use ($orderNo) {
                 $query->where('subject', 'LIKE', "%{$orderNo}%")
-                // Ya phir message body mein order number dhundo
-                      ->orWhere('html_body', 'LIKE', "%{$orderNo}%") // Agar field ka naam 'body' hai to wo likhein
+                      ->orWhere('html_body', 'LIKE', "%{$orderNo}%")
                       ->orWhere('text_body', 'LIKE', "%{$orderNo}%");
             })
             ->orderBy('created_at', 'desc')

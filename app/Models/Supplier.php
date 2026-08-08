@@ -12,6 +12,11 @@ class Supplier extends Model
         'name','email','phone','address','created_by'
     ];
 
+    public function purchaseOrders(): HasMany
+    {
+        return $this->hasMany(PurchaseOrder::class);
+    }
+    
     public function items()
     {
         return $this->hasMany(Item::class);

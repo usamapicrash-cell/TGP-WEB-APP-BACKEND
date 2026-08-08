@@ -59,6 +59,24 @@ class Lead extends Model
         return $this->hasOne(Quote::class)->where('status', 'approved'); // ya 'approved' (apne DB status ke mutabiq)
     }
 
+    public function purchaseOrders(): HasMany
+    {
+        return $this->hasMany(PurchaseOrder::class);
+    }
+
+    // Direct Lead se PO ke zariye unique Suppliers nikalne ke liye
+    public function suppliers(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            Supplier::class,
+            PurchaseOrder::class,
+            'lead_id',     // PurchaseOrder table me Foreign key
+            'id',          // Supplier table me Primary key
+            'id',          // Lead table me Primary key
+            'supplier_id'  // PurchaseOrder table me Foreign key
+        )->distinct();
+    }
+
     protected static function boot()
     {
         parent::boot();
