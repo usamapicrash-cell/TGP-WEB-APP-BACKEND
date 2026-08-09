@@ -134,26 +134,26 @@ class EmailController extends Controller
         }
 
         // 4. Sirf EK BAR record create karein UNIQUE Message-ID ke sath
-        $emailRecord = Email::create([
-            'sender'     => $sender,
-            'receiver'   => $request->to,
-            'subject'    => $request->subject,
-            'html_body'  => $htmlBody,
-            'type'       => 'sent',
-            'is_read'    => true,
-            'message_id' => $sentMessageId
-        ]);
+        // $emailRecord = Email::create([
+        //     'sender'     => $sender,
+        //     'receiver'   => $request->to,
+        //     'subject'    => $request->subject,
+        //     'html_body'  => $htmlBody,
+        //     'type'       => 'sent',
+        //     'is_read'    => true,
+        //     'message_id' => $sentMessageId
+        // ]);
 
-        // 5. Attachments DB link
-        foreach ($uploadedAttachments as $att) {
-            EmailAttachment::create([
-                'email_id'  => $emailRecord->id,
-                'file_name' => $att['file_name'],
-                'file_path' => $att['file_path'],
-                'file_type' => $att['file_type'],
-                'file_size' => $att['file_size'],
-            ]);
-        }
+        // // 5. Attachments DB link
+        // foreach ($uploadedAttachments as $att) {
+        //     EmailAttachment::create([
+        //         'email_id'  => $emailRecord->id,
+        //         'file_name' => $att['file_name'],
+        //         'file_path' => $att['file_path'],
+        //         'file_type' => $att['file_type'],
+        //         'file_size' => $att['file_size'],
+        //     ]);
+        // }
 
         \Log::info('Email sent with Message-ID: ' . $sentMessageId);
 
