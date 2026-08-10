@@ -289,6 +289,9 @@ class SmsCommunicationController extends Controller
                     ?? $request->input('to') 
                     ?? null;
 
+        $agentUserId = $request->input('custom_data.user_id'); // 🔥 naya
+
+
         if (!$toNumber) {
             \Log::error('Answer webhook: to number nahi mila', $request->all());
             return response()->json([
@@ -306,7 +309,8 @@ class SmsCommunicationController extends Controller
             'direction' => 'outbound',
             'status' => 'started',
             'started_at' => now(),
-            'user_id' => auth()->id(),
+            'user_id' => $agentUserId, // 🔥 auth()->id() ki jagah
+
         ]);
 
         $fromNumber = config('services.vonage.voice_from') 

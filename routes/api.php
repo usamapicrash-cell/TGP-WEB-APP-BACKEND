@@ -192,6 +192,7 @@ Route::middleware('auth:sanctum')->group(function () {
         
             Route::get('/call-logs', [CallLogController::class, 'index']);        // 👈 naya
             Route::get('/lookup-caller', [CallLogController::class, 'lookupCaller']); // 👈 naya
+            Route::post('/call-end', [CallLogController::class, 'markEnded']);
     });
 
 

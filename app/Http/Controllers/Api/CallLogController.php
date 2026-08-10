@@ -39,4 +39,30 @@ class CallLogController extends Controller
         $name = self::resolveClientName($request->query('phone'));
         return response()->json(['client_name' => $name]);
     }
+
+    public function markEnded(Request $request): JsonResponse
+    {
+        $request->validate(['phone' => 'required']);
+        $digits = preg_replace('/\D/', '', $request->input('phone'));
+        $last10 = substr($digits, -10);
+
+        // Sabse recent, abhi tak "open" (ended_at null) outbound log dhoondo is number ke liye
+        $log = \App\Models\CallLog::where('phone_number', 'like', "%{$last10}")
+            ->whereNull('ended_at')
+            ->where('direction', 'outbound')
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if ($log) {
+            $log->ended_at = now();
+            if (in_array($log->status, ['ringing', 'started'])) {
+                $log->status = 'no-answer'; // kabhi answer hi nahi hua
+            } elseif ($log->answered_at) {
+                $log->duration = now()->diffInSeconds($log->answered_at);
+            }
+            $log->save();
+        }
+
+        return response()->json(['success' => true]);
+    }
 }
