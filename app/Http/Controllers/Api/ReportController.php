@@ -185,7 +185,7 @@ class ReportController extends Controller
             // frontend badge label just does str_replace('_',' ') + ucfirst, so any
             // value will still display fine — only the color-coding (green=in,
             // red=out) below assumes the 'check_in' / 'check_out' naming.
-            $attendanceQuery = GlazierAttendance::with(['job:id,job_number,lead_id', 'job.lead:id,client_name', 'user:id,name']);
+            $attendanceQuery = GlazierAttendance::with(['job:id,job_number,lead_id', 'job.lead:id,client_name,order_no', 'user:id,name']);
             if ($userLevel > 2) {
                 $attendanceQuery->whereHas('job.lead', fn($q) => $q->where('created_by', $userId));
             }
