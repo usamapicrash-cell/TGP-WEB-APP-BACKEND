@@ -138,13 +138,12 @@ class ReportController extends Controller
             // Built from the SAME $invoicesInRange collection used for the KPI cards
             // above, so the bars always sum to exactly "Invoiced" and "Received" —
             // no more separate/mismatched numbers.
-            $trend = $invoicesInRange->groupBy(fn($inv) => optional($inv->created_at)->toDateString())
-                ->filter(fn($grp, $date) => !empty($date))
-                ->map(fn($grp, $date) => [
-                    'date' => $date,
-                    'invoiced' => (float) $grp->sum('total_amount'),
-                    'received' => (float) $grp->sum('paid_amount'),
-                ])->values()->sortBy('date')->values();
+           $trend = $jobsInRange->groupBy(fn($j) => optional($j->lead)->date)
+            ->filter(fn($grp, $date) => !empty($date))
+            ->map(fn($grp, $date) => [
+                'date' => $date,
+                'value' => (float) $grp->sum(fn($j) => (float) ($j->lead->value ?? 0)),
+            ])->values()->sortBy('date')->values();
 
             // ================= FULL DETAIL LISTS (for tables + Excel export) =================
             $leadsList = $leadsInRange->map(fn($l) => [
