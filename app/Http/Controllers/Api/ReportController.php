@@ -134,12 +134,16 @@ class ReportController extends Controller
             // Paid amount per lead (used to show Paid/Balance per row in the Jobs table)
             $paidByLead = $invoicesInRange->groupBy('lead_id')->map(fn($grp) => (float) $grp->sum('paid_amount'));
 
-            // ================= TREND (contract value per day the lead came in) =================
-            $trend = $jobsInRange->groupBy(fn($j) => optional($j->lead)->date)
-                ->filter(fn($group, $date) => !empty($date))
-                ->map(fn($group, $date) => [
+            // ================= TREND (Invoiced vs Received by date) =================
+            // Built from the SAME $invoicesInRange collection used for the KPI cards
+            // above, so the bars always sum to exactly "Invoiced" and "Received" —
+            // no more separate/mismatched numbers.
+            $trend = $invoicesInRange->groupBy(fn($inv) => optional($inv->created_at)->toDateString())
+                ->filter(fn($grp, $date) => !empty($date))
+                ->map(fn($grp, $date) => [
                     'date' => $date,
-                    'value' => (float) $group->sum(fn($j) => (float) ($j->lead->value ?? 0)),
+                    'invoiced' => (float) $grp->sum('total_amount'),
+                    'received' => (float) $grp->sum('paid_amount'),
                 ])->values()->sortBy('date')->values();
 
             // ================= FULL DETAIL LISTS (for tables + Excel export) =================
