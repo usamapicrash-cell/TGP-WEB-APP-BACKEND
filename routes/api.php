@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\{
     DashboardController,
     AuthController,
+    ReportController,
     LogoutController,
     UserController,
     LeadController,
@@ -64,6 +65,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // 🔐 Admin + Executive
     Route::middleware('role:executive,admin')->group(function () {
         Route::get('/dashboard-data', [DashboardController::class, 'index']);
+        Route::get('/reports/analytics', [ReportController::class, 'analytics']);   // 👈 naya route
         // Get emails for a specific lead/customer
         Route::get('/emails', [EmailController::class, 'index']);
         Route::get('/emails_supplier', [EmailController::class, 'emails_supplier']);
