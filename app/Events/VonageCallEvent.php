@@ -14,13 +14,17 @@ class VonageCallEvent implements ShouldBroadcastNow
 
     public $conversationUuid;
     public $status;
-    public $direction; // 🔥 naya field - optional, ab bhi backward compatible hai
+    public $direction;    // optional, backward compatible
+    public $clientName;   // 🔥 naya - resolved Lead name, agar mila to
+    public $phoneNumber;  // 🔥 naya - raw number, fallback display ke liye
 
-    public function __construct($conversationUuid, $status, $direction = null)
+    public function __construct($conversationUuid, $status, $direction = null, $clientName = null, $phoneNumber = null)
     {
         $this->conversationUuid = $conversationUuid;
         $this->status = $status;
         $this->direction = $direction;
+        $this->clientName = $clientName;
+        $this->phoneNumber = $phoneNumber;
     }
 
     public function broadcastOn()
@@ -37,12 +41,12 @@ class VonageCallEvent implements ShouldBroadcastNow
 
     public function broadcastWith()
     {
-        // 🔥 Explicit payload — pehle sirf default public properties broadcast
-        // hoti thin, ab direction bhi frontend ko milega (agar chahiye ho)
         return [
             'conversationUuid' => $this->conversationUuid,
             'status'           => $this->status,
             'direction'        => $this->direction,
+            'clientName'       => $this->clientName,   // 🔥 naya
+            'phoneNumber'      => $this->phoneNumber,  // 🔥 naya
         ];
     }
 }

@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\{
     NotificationController,
     EmailController,
     SmsCommunicationController,
+    CallLogController,
 };
 use App\Http\Controllers\QuickBooksController;
 use Illuminate\Http\Request;
@@ -188,7 +189,10 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/voice-token', [SmsCommunicationController::class, 'getVoiceToken']);
             Route::get('/sms-history', [SmsCommunicationController::class, 'getHistory']);
             Route::post('/send-sms', [SmsCommunicationController::class, 'sendSms']);
-        });
+        
+            Route::get('/call-logs', [CallLogController::class, 'index']);        // 👈 naya
+            Route::get('/lookup-caller', [CallLogController::class, 'lookupCaller']); // 👈 naya
+    });
 
 
 

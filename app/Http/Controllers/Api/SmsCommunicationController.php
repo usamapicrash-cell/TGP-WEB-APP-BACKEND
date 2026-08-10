@@ -216,133 +216,165 @@ class SmsCommunicationController extends Controller
             'line'   => $e->getLine()
         ], 500);
     }
-}
+    }
 
-public function createVonageUser(Request $request) {
-    try {
-        $applicationId = config('services.vonage.application_id');
-        $privateKeyPath = base_path(config('services.vonage.private_key'));
+    public function createVonageUser(Request $request) {
+        try {
+            $applicationId = config('services.vonage.application_id');
+            $privateKeyPath = base_path(config('services.vonage.private_key'));
 
-        if (!$applicationId || !file_exists($privateKeyPath)) {
-            throw new \Exception('Application ID ya Private key file missing hai!');
-        }
+            if (!$applicationId || !file_exists($privateKeyPath)) {
+                throw new \Exception('Application ID ya Private key file missing hai!');
+            }
 
-        $privateKey = file_get_contents($privateKeyPath);
+            $privateKey = file_get_contents($privateKeyPath);
 
-        // --- Admin-level JWT banayein (sub ke bagair) ---
-        $header = ['alg' => 'RS256', 'typ' => 'JWT'];
-        $payload = [
-            'iat' => time(),
-            'exp' => time() + 3600,
-            'jti' => bin2hex(random_bytes(16)),
-            'application_id' => $applicationId,
-        ];
+            // --- Admin-level JWT banayein (sub ke bagair) ---
+            $header = ['alg' => 'RS256', 'typ' => 'JWT'];
+            $payload = [
+                'iat' => time(),
+                'exp' => time() + 3600,
+                'jti' => bin2hex(random_bytes(16)),
+                'application_id' => $applicationId,
+            ];
 
-        $base64UrlHeader = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode(json_encode($header)));
-        $base64UrlPayload = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode(json_encode($payload)));
-        $dataToSign = $base64UrlHeader . "." . $base64UrlPayload;
+            $base64UrlHeader = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode(json_encode($header)));
+            $base64UrlPayload = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode(json_encode($payload)));
+            $dataToSign = $base64UrlHeader . "." . $base64UrlPayload;
 
-        openssl_sign($dataToSign, $signature, $privateKey, OPENSSL_ALGO_SHA256);
-        $base64UrlSignature = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($signature));
-        $adminJwt = $dataToSign . "." . $base64UrlSignature;
+            openssl_sign($dataToSign, $signature, $privateKey, OPENSSL_ALGO_SHA256);
+            $base64UrlSignature = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($signature));
+            $adminJwt = $dataToSign . "." . $base64UrlSignature;
 
-        \Log::info('Admin JWT Generated', ['jwt_preview' => substr($adminJwt, 0, 40) . '...']);
+            \Log::info('Admin JWT Generated', ['jwt_preview' => substr($adminJwt, 0, 40) . '...']);
 
-        // --- User Create Karne Ki Request ---
-        $userName = $request->input('name', 'tgp_portal_user'); // default name
+            // --- User Create Karne Ki Request ---
+            $userName = $request->input('name', 'tgp_portal_user'); // default name
 
-        $response = \Illuminate\Support\Facades\Http::withOptions([
-                'verify' => false,
-            ])
-            ->withToken($adminJwt)
-            ->post('https://api.nexmo.com/v1/users', [
-                'name' => $userName,
-                'display_name' => 'TGP Portal User'
+            $response = \Illuminate\Support\Facades\Http::withOptions([
+                    'verify' => false,
+                ])
+                ->withToken($adminJwt)
+                ->post('https://api.nexmo.com/v1/users', [
+                    'name' => $userName,
+                    'display_name' => 'TGP Portal User'
+                ]);
+
+            \Log::info('Vonage Create User Response', [
+                'status' => $response->status(),
+                'body'   => $response->json()
             ]);
 
-        \Log::info('Vonage Create User Response', [
-            'status' => $response->status(),
-            'body'   => $response->json()
-        ]);
+            return response()->json([
+                'status' => $response->status(),
+                'body' => $response->json()
+            ], $response->status());
 
-        return response()->json([
-            'status' => $response->status(),
-            'body' => $response->json()
-        ], $response->status());
+        } catch (\Throwable $e) {
+            \Log::error('Vonage User Creation Failed', [
+                'error' => $e->getMessage(),
+                'file'  => $e->getFile(),
+                'line'  => $e->getLine()
+            ]);
 
-    } catch (\Throwable $e) {
-        \Log::error('Vonage User Creation Failed', [
-            'error' => $e->getMessage(),
-            'file'  => $e->getFile(),
-            'line'  => $e->getLine()
-        ]);
-
-        return response()->json(['error' => $e->getMessage()], 500);
-    }
-}
-
-
-public function voiceAnswerWebhook(Request $request) {
-    \Log::info('Vonage Answer Webhook Hit', $request->all());
-
-    $toNumber = $request->input('custom_data.number') 
-                ?? $request->input('to') 
-                ?? null;
-
-    if (!$toNumber) {
-        \Log::error('Answer webhook: to number nahi mila', $request->all());
-        return response()->json([
-            ["action" => "talk", "text" => "Sorry, number nahi mila."]
-        ]);
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
     }
 
-    // Vonage virtual number dynamically .env se uthein, jo numerical format me ho
-    // Agar custom phone number set nahi hai, toh default numeric sender use karein, text nahi.
-    $fromNumber = config('services.vonage.voice_from') 
-                  ?? config('services.vonage.sms_from') 
-                  ?? '13159071112'; // Apka actual virtual number yahan fallback me rakhein
 
-    return response()->json([
-        [
-            "action" => "connect",
-            "from" => $fromNumber, 
-            "endpoint" => [
-                [
-                    "type" => "phone",
-                    "number" => $toNumber
+    public function voiceAnswerWebhook(Request $request) {
+        \Log::info('Vonage Answer Webhook Hit', $request->all());
+
+        $toNumber = $request->input('custom_data.number') 
+                    ?? $request->input('to') 
+                    ?? null;
+
+        if (!$toNumber) {
+            \Log::error('Answer webhook: to number nahi mila', $request->all());
+            return response()->json([
+                ["action" => "talk", "text" => "Sorry, number nahi mila."]
+            ]);
+        }
+
+        // 🔥 Call log row create karo (outbound leg — see comment in CallingContext.jsx
+        // about why only 'outbound' direction is the real customer call)
+        $conversationUuid = $request->input('conversation_uuid');
+        \App\Models\CallLog::create([
+            'conversation_uuid' => $conversationUuid,
+            'phone_number' => $toNumber,
+            'client_name' => \App\Http\Controllers\Api\CallLogController::resolveClientName($toNumber),
+            'direction' => 'outbound',
+            'status' => 'started',
+            'started_at' => now(),
+            'user_id' => auth()->id(),
+        ]);
+
+        $fromNumber = config('services.vonage.voice_from') 
+                      ?? config('services.vonage.sms_from') 
+                      ?? '13159071112';
+
+        return response()->json([
+            [
+                "action" => "connect",
+                "from" => $fromNumber, 
+                "endpoint" => [
+                    [
+                        "type" => "phone",
+                        "number" => $toNumber
+                    ]
                 ]
             ]
-        ]
-    ]);
-}
+        ]);
+    }
 
     public function voiceEventWebhook(Request $request) {
         $data = $request->all();
         \Log::info('Vonage Event Webhook', $data);
 
-         $status            = $data['status'] ?? null;
+        $status            = $data['status'] ?? null;
         $conversationUuid  = $data['conversation_uuid'] ?? null;
         $direction         = $data['direction'] ?? null;
-     
+
         if (!$conversationUuid || !$status) {
             return response()->json([], 200);
         }
-     
-        // 🔥 Call terminate/fail hone wale states
+
         $endStates = [
             'completed', 'busy', 'cancelled', 'canceled',
             'timeout', 'rejected', 'failed',
             'no_answer', 'no-answer', 'unanswered', 'declined'
         ];
-     
-        // 🔥 NAYA: Call live/progress states — pehle yeh broadcast hi nahi hote the
         $liveStates = ['ringing', 'started', 'answered', 'connected', 'active'];
-     
+
+        // 🔥 Naya: matching CallLog row update karo (status, timestamps, duration)
+        $log = \App\Models\CallLog::where('conversation_uuid', $conversationUuid)->first();
+        if ($log) {
+            $log->status = $status;
+            if ($status === 'answered' && !$log->answered_at) {
+                $log->answered_at = now();
+            }
+            if (in_array($status, $endStates)) {
+                $log->ended_at = now();
+                if ($log->answered_at) {
+                    $log->duration = now()->diffInSeconds($log->answered_at);
+                }
+            }
+            $log->save();
+        }
+
         if (in_array($status, $endStates) || in_array($status, $liveStates)) {
-            event(new \App\Events\VonageCallEvent($conversationUuid, $status, $direction));
+            // 🔥 Naya: name bhi broadcast payload me bhejo taake incoming widget
+            // pe number ki jagah naam dikhe
+            event(new \App\Events\VonageCallEvent(
+                $conversationUuid,
+                $status,
+                $direction,
+                $log->client_name ?? null,
+                $log->phone_number ?? null
+            ));
             \Log::info("Broadcasted Call Status Event for Conversation: {$conversationUuid} with status: {$status} (direction: {$direction})");
         }
-     
+
         return response()->json([], 200);
     }
 }
