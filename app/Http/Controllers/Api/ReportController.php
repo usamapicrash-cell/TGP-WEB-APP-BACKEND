@@ -196,7 +196,7 @@ class ReportController extends Controller
 
             $attendanceList = $attendanceInRange->map(fn($a) => [
                 'id' => $a->id,
-                'job_number' => $a->job->job_number ?? null,
+                'job_number' => $a->job->job_number ?? $a->job->lead->order_no,
                 'client_name' => $a->job->lead->client_name ?? null,
                 'glazier' => $a->user->name ?? 'Unknown',
                 'action' => $a->action,
