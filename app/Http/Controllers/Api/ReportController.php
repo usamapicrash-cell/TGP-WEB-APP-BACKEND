@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Lead;
 use App\Models\GJob;
 use App\Models\Invoice;
-use App\Models\Payment;
 use App\Models\GlazierAttendance;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -33,15 +32,17 @@ use Carbon\Carbon;
      exclude it, matching what DashboardController already does for the
      "Work Order Stages" widget.
 
-  3. "Amount Received" is summed from the `Payment` model (real ledger
-     entries), NOT from Invoice.paid_amount — that way a date-range report
-     reflects money that actually came IN during that exact range, not a
-     running total.
-     ⚠️ VERIFY: this assumes the `payments` table has an `amount` column
-     and a `created_at` timestamp. If your Payment model uses a different
-     column name (e.g. `amount_paid`), change the two `sum('amount')` /
-     `SUM(amount)` lines below to match. Send me your Payment.php model if
-     you're not sure and I'll adjust it precisely.
+  3. Invoiced / Received / Pending / Collection Rate — for BOTH the Live
+     All-Time snapshot (DashboardController) AND this date-range report —
+     are computed from the exact same source: Invoice.total_amount and
+     Invoice.paid_amount. Only the date scope differs. This keeps the two
+     sections of the Reports page always in agreement (no more "top card
+     says $28, range card says $203" mismatches).
+
+  4. "Job Value" (used only in the Job Value Trend chart) is a SEPARATE,
+     intentionally different figure — the sum of each job's Lead.value
+     (the quoted amount), which can include work that hasn't been invoiced
+     yet. It will not equal "Invoiced" and isn't meant to.
   ============================================================================
 */
 
@@ -66,13 +67,11 @@ class ReportController extends Controller
             $leadQuery = Lead::query();
             $jobQuery = GJob::query()->where('status', 'job'); // only converted/real jobs
             $invoiceQuery = Invoice::query();
-            $paymentQuery = Payment::query();
 
             if ($userLevel > 2) {
                 $leadQuery->where('created_by', $userId);
                 $invoiceQuery->whereHas('lead', fn($q) => $q->where('created_by', $userId));
                 $jobQuery->whereHas('lead', fn($q) => $q->where('created_by', $userId));
-                $paymentQuery->whereHas('lead', fn($q) => $q->where('created_by', $userId));
             }
 
             // ================= LEADS in range =================
@@ -113,23 +112,27 @@ class ReportController extends Controller
                     'value' => $group->count(),
                 ])->values();
 
+            // "Job Value" = sum of each job's Lead.value (the quoted/contract amount).
+            // This is a PIPELINE figure — it can include jobs that haven't been
+            // invoiced yet, so it will NOT equal "Invoiced" below. Used only for
+            // the Job Value Trend chart, kept separate on purpose.
             $contractValue = (float) $jobsInRange->sum(fn($j) => (float) ($j->lead->value ?? 0));
 
-            // ================= PAYMENTS in range (real ledger, per Lead) =================
-            $paymentsByLead = (clone $paymentQuery)
+            // ================= INVOICED / RECEIVED / PENDING in range =================
+            // Uses the SAME source as the Live All-Time snapshot (Invoice.total_amount
+            // and Invoice.paid_amount) — just scoped to this date range instead of
+            // all-time — so the two sections of the page always agree with each other.
+            $invoicesInRange = (clone $invoiceQuery)
                 ->whereBetween('created_at', [$from, $to])
-                ->select('lead_id', DB::raw('SUM(amount) as total'))
-                ->groupBy('lead_id')
-                ->pluck('total', 'lead_id');
+                ->get();
 
-            $amountReceived = (float) $paymentsByLead->sum();
-            $amountPending = max($contractValue - $amountReceived, 0);
-            $collectionRate = $contractValue > 0 ? round(($amountReceived / $contractValue) * 100, 1) : 0;
+            $invoicedInRange = (float) $invoicesInRange->sum('total_amount');
+            $amountReceived = (float) $invoicesInRange->sum('paid_amount');
+            $amountPending = max($invoicedInRange - $amountReceived, 0);
+            $collectionRate = $invoicedInRange > 0 ? round(($amountReceived / $invoicedInRange) * 100, 1) : 0;
 
-            // Invoices actually raised within the range (separate figure, useful context)
-            $invoicedInRange = (float) (clone $invoiceQuery)
-                ->whereBetween('created_at', [$from, $to])
-                ->sum('total_amount');
+            // Paid amount per lead (used to show Paid/Balance per row in the Jobs table)
+            $paidByLead = $invoicesInRange->groupBy('lead_id')->map(fn($grp) => (float) $grp->sum('paid_amount'));
 
             // ================= TREND (contract value per day the lead came in) =================
             $trend = $jobsInRange->groupBy(fn($j) => optional($j->lead)->date)
@@ -153,9 +156,9 @@ class ReportController extends Controller
                 'date' => $l->date,
             ])->values();
 
-            $jobsList = $jobsInRange->map(function ($j) use ($paymentsByLead) {
+            $jobsList = $jobsInRange->map(function ($j) use ($paidByLead) {
                 $contract = (float) ($j->lead->value ?? 0);
-                $paid = (float) ($paymentsByLead[$j->lead_id] ?? 0);
+                $paid = (float) ($paidByLead[$j->lead_id] ?? 0);
                 return [
                     'id' => $j->id,
                     'job_number' => $j->job_number,
