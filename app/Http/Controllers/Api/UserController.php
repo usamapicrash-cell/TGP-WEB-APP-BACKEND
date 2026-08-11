@@ -169,12 +169,6 @@ class UserController extends Controller
         }
 
         $user->update(['password' => Hash::make($request->new_password)]);
-
-        $user->tokens()->delete();
-        $newToken = $user->createToken('auth_token')->plainTextToken;
-        return response()->json([
-            'message' => 'Password updated. All other sessions logged out.',
-            'token' => $newToken
-        ]);
+        return response()->json(['message' => 'Password changed successfully']);
     }
 }
