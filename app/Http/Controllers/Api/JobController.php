@@ -307,7 +307,7 @@ class JobController extends Controller
             return response()->json(['message' => 'This lead has already been converted to a job.'], 409);
         }
 
-        return DB::transaction(function () use ($request, $lead) {
+        return DB::transaction(function () use ($request, $lead, $qbService) {
             
             // 2. Generate Job Number (LD-1012 -> GB-1012)
             // Agar lead number mein "LD-" nahi bhi hai, toh safe replacement ke liye prefix check kar sakte hain
