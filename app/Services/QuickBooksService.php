@@ -115,24 +115,51 @@ class QuickBooksService
         ];
     }
 
-    private function getOrCreateCustomer($dataService, Lead $lead)
+    public function getOrCreateCustomer($lead)
     {
-        $cleanName = str_replace("'", "\'", $lead->client_name);
-        $existing = $dataService->Query("SELECT * FROM Customer WHERE DisplayName = '{$cleanName}'");
+        $dataService = $this->getDataService();
 
-        if ($existing && count($existing) > 0) {
-            return $existing[0]->Id;
+        // 1. Existing Customer Search
+        $displayName = trim($lead->client_name);
+        $existingCustomers = $dataService->Query("SELECT * FROM Customer WHERE DisplayName = '" . addslashes($displayName) . "'");
+
+        if (!empty($existingCustomers)) {
+            return $existingCustomers[0];
         }
 
+        // 2. Prepare Customer Payload
         $customerObj = Customer::create([
-            'DisplayName' => $lead->client_name,
-            'PrimaryEmailAddr' => ['Address' => $lead->email],
-            'PrimaryPhone' => ['FreeFormNumber' => $lead->phone],
-            'BillAddr' => ['Line1' => $lead->address],
+            'GivenName'   => $lead->first_name ?? $displayName,
+            'FamilyName'  => $lead->last_name ?? '',
+            'DisplayName' => $displayName,
+            'PrimaryEmailAddr' => [
+                'Address' => $lead->email ?? ''
+            ],
+            'PrimaryPhone' => [
+                'FreeFormNumber' => $lead->phone ?? ''
+            ]
         ]);
 
-        $created = $dataService->Add($customerObj);
-        return $created->Id;
+        // 3. Create Customer on QuickBooks
+        $resultingCustomerObj = $dataService->Add($customerObj);
+        $error = $dataService->getLastError();
+
+        // 4. Handle SDK Errors / Null Result
+        if ($error) {
+            \Log::error('QuickBooks Customer Creation Failed', [
+                'statusCode' => $error->getHttpStatusCode(),
+                'helperMessage' => $error->getOAuthHelperError(),
+                'responseBody' => $error->getResponseBody()
+            ]);
+            throw new \Exception('QuickBooks Customer Error: ' . $error->getResponseBody());
+        }
+
+        if (!$resultingCustomerObj) {
+            throw new \Exception('Failed to create customer in QuickBooks. Null response returned.');
+        }
+
+        // Line 135 Safe Access
+        return $resultingCustomerObj;
     }
 
     private function getOrCreateItem($dataService, $name, $price, $incomeAccountRef)
