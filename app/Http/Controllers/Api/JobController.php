@@ -12,6 +12,7 @@ use App\Models\GlazierAttendance;
 use Illuminate\Support\Facades\Log; // 👈 Add this at the top
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use App\Services\QuickBooksService; // 👈 Add at top
 
 class JobController extends Controller
 {
@@ -294,7 +295,7 @@ class JobController extends Controller
     //     ], 201);
     // }
 
-    public function store(Request $request, Lead $lead)
+    public function store(Request $request, Lead $lead, QuickBooksService $qbService)
     {
         $request->validate([
             'title'      => 'required|string|max:255',
@@ -332,6 +333,9 @@ class JobController extends Controller
                 'start_date'  => $request->start_date,
                 'end_date'    => $request->end_date,
             ]);
+
+            $qbResult = $qbService->syncLeadAndCreateInvoice($lead->load(['quotes.items']));
+
             $creatorName = $lead->creator->name ?? 'System';
             \App\Models\UserNotification::create([
                     'title'        => 'New Job Alert',
