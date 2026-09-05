@@ -123,17 +123,24 @@ class QuickBooksService
         throw new \Exception('Client name is required for QuickBooks customer creation.');
     }
 
-    // 1. Escape single quotes for Intuit Query syntax
     $escapedName = str_replace("'", "\'", $displayName);
 
-    // 2. Query Active and Inactive Customers
+    // 1. Query both active and inactive customers explicitly
     $existingCustomers = $dataService->Query("SELECT * FROM Customer WHERE DisplayName = '{$escapedName}'");
 
     if (!empty($existingCustomers)) {
-        return $existingCustomers[0]->Id;
+        $customer = $existingCustomers[0];
+        
+        // If customer is inactive (soft-deleted), reactivate them
+        if (isset($customer->Active) && $customer->Active === 'false') {
+            $customer->Active = 'true';
+            $dataService->Update($customer);
+        }
+        
+        return $customer->Id;
     }
 
-    // Prepare Base Payload Array
+    // 2. Base Payload Configuration
     $customerPayload = [
         'GivenName'        => $lead->first_name ?? $displayName,
         'FamilyName'       => $lead->last_name ?? '',
@@ -146,7 +153,7 @@ class QuickBooksService
         ]
     ];
 
-    // 3. Attempt Initial Customer Creation
+    // 3. First Attempt
     $customerObj = Customer::create($customerPayload);
     $resultingCustomerObj = $dataService->Add($customerObj);
     $error = $dataService->getLastError();
@@ -154,17 +161,18 @@ class QuickBooksService
     if ($error) {
         $xmlError = $error->getResponseBody();
 
-        // 4. Handle Duplicate Error (Code 6240) Gracefully
+        // 4. Handle Duplicate Error (Code 6240)
         if (str_contains($xmlError, '6240')) {
-            // Append unique identifier to resolve collision (Vendor/Other Names overlap)
-            $uniqueDisplayName = $displayName . ' (' . ($lead->order_no ?? $lead->id) . ')';
-            
+            // Guaranteed unique suffix using timestamp or lead reference
+            $uniqueSuffix = !empty($lead->order_no) ? $lead->order_no : ($lead->id ?? time());
+            $uniqueDisplayName = "{$displayName} ({$uniqueSuffix})";
+
+            // Overwrite DisplayName & Re-instantiate object
             $customerPayload['DisplayName'] = $uniqueDisplayName;
             
-            // Re-instantiate Customer object with updated payload
             $retryCustomerObj = Customer::create($customerPayload);
             $resultingCustomerObj = $dataService->Add($retryCustomerObj);
-            
+
             $retryError = $dataService->getLastError();
             if ($retryError) {
                 throw new \Exception('QuickBooks Error after retry: ' . $retryError->getResponseBody());
