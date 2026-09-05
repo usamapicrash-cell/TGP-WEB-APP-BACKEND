@@ -116,65 +116,73 @@ class QuickBooksService
     }
 
     public function getOrCreateCustomer($dataService, Lead $lead)
-{
-    $displayName = trim($lead->client_name);
+    {
+        $displayName = trim($lead->client_name);
 
-    if (empty($displayName)) {
-        throw new \Exception('Client name is required for QuickBooks customer creation.');
-    }
-
-    $escapedName = str_replace("'", "\'", $displayName);
-
-    // 1. Query both active and inactive customers explicitly
-    $existingCustomers = $dataService->Query("SELECT * FROM Customer WHERE DisplayName = '{$escapedName}'");
-
-    if (!empty($existingCustomers)) {
-        $customer = $existingCustomers[0];
-        
-        // If customer is inactive (soft-deleted), reactivate them
-        if (isset($customer->Active) && $customer->Active === 'false') {
-            $customer->Active = 'true';
-            $dataService->Update($customer);
+        if (empty($displayName)) {
+            throw new \Exception('Client name is required for QuickBooks customer creation.');
         }
-        
-        return $customer->Id;
-    }
 
-    // 2. Base Payload Configuration
-    $customerPayload = [
-        'GivenName'        => $lead->first_name ?? $displayName,
-        'FamilyName'       => $lead->last_name ?? '',
-        'DisplayName'      => $displayName,
-        'PrimaryEmailAddr' => [
-            'Address' => $lead->email ?? ''
-        ],
-        'PrimaryPhone' => [
-            'FreeFormNumber' => $lead->phone ?? ''
-        ]
-    ];
+        $escapedName = str_replace("'", "\'", $displayName);
 
-    // 3. First Attempt
-    $customerObj = Customer::create($customerPayload);
-    $resultingCustomerObj = $dataService->Add($customerObj);
-    $error = $dataService->getLastError();
+        // 1. Check if Customer already exists (Active or Inactive)
+        $existingCustomers = $dataService->Query("SELECT * FROM Customer WHERE DisplayName = '{$escapedName}'");
 
-    if ($error) {
-        $xmlError = $error->getResponseBody();
-
-        // 4. Handle Duplicate Error (Code 6240)
-        if (str_contains($xmlError, '6240')) {
-            // Guaranteed unique suffix using timestamp or lead reference
-            $uniqueSuffix = !empty($lead->order_no) ? $lead->order_no : ($lead->id ?? time());
-            $uniqueDisplayName = "{$displayName} ({$uniqueSuffix})";
-
-            // Overwrite DisplayName & Re-instantiate object
-            $customerPayload['DisplayName'] = $uniqueDisplayName;
+        if (!empty($existingCustomers)) {
+            $customer = $existingCustomers[0];
             
+            // Reactivate soft-deleted customer if inactive
+            if (isset($customer->Active) && ($customer->Active === 'false' || $customer->Active === false)) {
+                $customer->Active = 'true';
+                $updated = $dataService->Update($customer);
+                return $updated ? $updated->Id : $customer->Id;
+            }
+            
+            return $customer->Id;
+        }
+
+        // 2. Base Customer Payload
+        $customerPayload = [
+            'GivenName'        => $lead->first_name ?? $displayName,
+            'FamilyName'       => $lead->last_name ?? '',
+            'DisplayName'      => $displayName,
+            'PrimaryEmailAddr' => [
+                'Address' => $lead->email ?? ''
+            ],
+            'PrimaryPhone' => [
+                'FreeFormNumber' => $lead->phone ?? ''
+            ]
+        ];
+
+        // 3. Attempt Initial Creation
+        $customerObj = Customer::create($customerPayload);
+        $resultingCustomerObj = $dataService->Add($customerObj);
+        $error = $dataService->getLastError();
+
+        if (!$error && $resultingCustomerObj) {
+            return $resultingCustomerObj->Id;
+        }
+
+        $xmlError = $error ? $error->getResponseBody() : '';
+
+        // 4. Handle Duplicate Error (Code 6240 - Vendor/Other Name Conflict or Soft-Deleted Name)
+        if (str_contains($xmlError, '6240')) {
+            // Append explicit unique reference with microtime timestamp to eliminate collision
+            $uniqueRef = !empty($lead->order_no) ? $lead->order_no : 'ID-' . ($lead->id ?? time());
+            $uniqueDisplayName = "{$displayName} ({$uniqueRef}-" . substr(md5(microtime()), 0, 4) . ")";
+
+            $customerPayload['DisplayName'] = $uniqueDisplayName;
+
+            // Re-instantiate SDK Object
             $retryCustomerObj = Customer::create($customerPayload);
             $resultingCustomerObj = $dataService->Add($retryCustomerObj);
 
             $retryError = $dataService->getLastError();
             if ($retryError) {
+                \Log::error('QuickBooks Customer Retry Failed', [
+                    'payload_name' => $uniqueDisplayName,
+                    'response'     => $retryError->getResponseBody()
+                ]);
                 throw new \Exception('QuickBooks Error after retry: ' . $retryError->getResponseBody());
             }
 
@@ -187,13 +195,6 @@ class QuickBooksService
         ]);
         throw new \Exception('QuickBooks Error: ' . $xmlError);
     }
-
-    if (!$resultingCustomerObj) {
-        throw new \Exception('Failed to create customer in QuickBooks. Null response returned.');
-    }
-
-    return $resultingCustomerObj->Id;
-}
 
     private function getOrCreateItem($dataService, $name, $price, $incomeAccountRef)
     {
