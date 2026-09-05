@@ -95,23 +95,23 @@ class QuickBooksService
             return ['success' => false, 'message' => $error->getResponseBody()];
         }
 
-        // 5. Store / Update Invoice in Local Database
-        $localInvoice = LocalInvoice::updateOrCreate(
-            ['lead_id' => $lead->id],
-            [
-                'invoice_number' => $resultingInvoice->DocNumber ?? ('INV-' . $lead->order_no),
-                'helcim_invoice_number' => $resultingInvoice->Id, // Storing QBO ID for reference
-                'total_amount' => $quote->total_amount ?? $quote->items->sum('total'),
-                'paid_amount' => 0.00,
-                'status' => 'unpaid',
-                'due_date' => now()->addDays(30),
-            ]
-        );
+        // // 5. Store / Update Invoice in Local Database
+        // $localInvoice = LocalInvoice::updateOrCreate(
+        //     ['lead_id' => $lead->id],
+        //     [
+        //         'invoice_number' => $resultingInvoice->DocNumber ?? ('INV-' . $lead->order_no),
+        //         'helcim_invoice_number' => $resultingInvoice->Id, // Storing QBO ID for reference
+        //         'total_amount' => $quote->total_amount ?? $quote->items->sum('total'),
+        //         'paid_amount' => 0.00,
+        //         'status' => 'unpaid',
+        //         'due_date' => now()->addDays(30),
+        //     ]
+        // );
 
         return [
             'success' => true,
             'qbo_invoice_id' => $resultingInvoice->Id,
-            'local_invoice' => $localInvoice
+            // 'local_invoice' => $localInvoice
         ];
     }
 
