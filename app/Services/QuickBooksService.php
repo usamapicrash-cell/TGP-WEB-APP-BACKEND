@@ -115,55 +115,52 @@ class QuickBooksService
         ];
     }
 
-    public function getOrCreateCustomer($lead)
-    {
-        $dataService = $this->getDataService();
+    public function getOrCreateCustomer($dataService, Lead $lead)
+{
+    $displayName = trim($lead->client_name);
 
-        // ✅ FIX: Use $lead->client_name instead of $dataService->client_name
-        $displayName = trim($lead->client_name);
-
-        if (empty($displayName)) {
-            throw new \Exception('Client name is required for QuickBooks customer creation.');
-        }
-
-        // Query QuickBooks
-        $sanitizedName = addslashes($displayName);
-        $existingCustomers = $dataService->Query("SELECT * FROM Customer WHERE DisplayName = '{$sanitizedName}'");
-
-        if (!empty($existingCustomers)) {
-            return $existingCustomers[0];
-        }
-
-        // Create Customer Entity
-        $customerObj = Customer::create([
-            'GivenName'        => $lead->first_name ?? $displayName,
-            'FamilyName'       => $lead->last_name ?? '',
-            'DisplayName'      => $displayName,
-            'PrimaryEmailAddr' => [
-                'Address' => $lead->email ?? ''
-            ],
-            'PrimaryPhone' => [
-                'FreeFormNumber' => $lead->phone ?? ''
-            ]
-        ]);
-
-        $resultingCustomerObj = $dataService->Add($customerObj);
-        $error = $dataService->getLastError();
-
-        if ($error) {
-            \Log::error('QuickBooks Customer Creation Failed', [
-                'statusCode' => $error->getHttpStatusCode(),
-                'responseBody' => $error->getResponseBody()
-            ]);
-            throw new \Exception('QuickBooks Error: ' . $error->getResponseBody());
-        }
-
-        if (!$resultingCustomerObj) {
-            throw new \Exception('Failed to create customer in QuickBooks. Null response returned.');
-        }
-
-        return $resultingCustomerObj;
+    if (empty($displayName)) {
+        throw new \Exception('Client name is required for QuickBooks customer creation.');
     }
+
+    // Query QuickBooks
+    $sanitizedName = addslashes($displayName);
+    $existingCustomers = $dataService->Query("SELECT * FROM Customer WHERE DisplayName = '{$sanitizedName}'");
+
+    if (!empty($existingCustomers)) {
+        return $existingCustomers[0]->Id; // 👈 Return ID string
+    }
+
+    // Create Customer Entity
+    $customerObj = Customer::create([
+        'GivenName'        => $lead->first_name ?? $displayName,
+        'FamilyName'       => $lead->last_name ?? '',
+        'DisplayName'      => $displayName,
+        'PrimaryEmailAddr' => [
+            'Address' => $lead->email ?? ''
+        ],
+        'PrimaryPhone' => [
+            'FreeFormNumber' => $lead->phone ?? ''
+        ]
+    ]);
+
+    $resultingCustomerObj = $dataService->Add($customerObj);
+    $error = $dataService->getLastError();
+
+    if ($error) {
+        \Log::error('QuickBooks Customer Creation Failed', [
+            'statusCode'   => $error->getHttpStatusCode(),
+            'responseBody' => $error->getResponseBody()
+        ]);
+        throw new \Exception('QuickBooks Error: ' . $error->getResponseBody());
+    }
+
+    if (!$resultingCustomerObj) {
+        throw new \Exception('Failed to create customer in QuickBooks. Null response returned.');
+    }
+
+    return $resultingCustomerObj->Id; // 👈 Return ID string
+}
 
     private function getOrCreateItem($dataService, $name, $price, $incomeAccountRef)
     {
@@ -175,13 +172,19 @@ class QuickBooksService
         }
 
         $itemObj = QBOItem::create([
-            'Name' => $cleanName,
-            'Type' => 'Service',
-            'UnitPrice' => $price,
+            'Name'             => $cleanName,
+            'Type'             => 'Service',
+            'UnitPrice'        => $price,
             'IncomeAccountRef' => ['value' => $incomeAccountRef]
         ]);
 
         $created = $dataService->Add($itemObj);
+        $error = $dataService->getLastError();
+
+        if ($error || !$created) {
+            throw new \Exception('Failed to create Item in QuickBooks: ' . ($error ? $error->getResponseBody() : 'Null response'));
+        }
+
         return $created->Id;
     }
 
