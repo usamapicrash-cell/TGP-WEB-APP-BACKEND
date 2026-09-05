@@ -123,15 +123,18 @@ class QuickBooksService
         throw new \Exception('Client name is required for QuickBooks customer creation.');
     }
 
-    // Query QuickBooks
-    $sanitizedName = addslashes($displayName);
-    $existingCustomers = $dataService->Query("SELECT * FROM Customer WHERE DisplayName = '{$sanitizedName}'");
+    // 1. Escape single quotes specifically for Intuit Query syntax
+    $escapedName = str_replace("'", "\'", $displayName);
+
+    // 2. Query Active and Inactive Customers
+    $existingCustomers = $dataService->Query("SELECT * FROM Customer WHERE DisplayName = '{$escapedName}'");
 
     if (!empty($existingCustomers)) {
-        return $existingCustomers[0]->Id; // 👈 Return ID string
+        return $existingCustomers[0]->Id;
     }
 
-    // Create Customer Entity
+    // 3. Fallback: Search all entity types if Customer query yielded no results
+    // (Handles cases where name exists under another entity type or soft-deleted)
     $customerObj = Customer::create([
         'GivenName'        => $lead->first_name ?? $displayName,
         'FamilyName'       => $lead->last_name ?? '',
@@ -148,18 +151,36 @@ class QuickBooksService
     $error = $dataService->getLastError();
 
     if ($error) {
+        $xmlError = $error->getResponseBody();
+
+        // 4. Handle Duplicate Error (Code 6240) Gracefully
+        if (str_contains($xmlError, '6240')) {
+            // Append unique identifier (Lead/Job ID or Phone) to resolve collision
+            $uniqueDisplayName = $displayName . ' (' . ($lead->order_no ?? $lead->id) . ')';
+            
+            $customerObj->DisplayName = $uniqueDisplayName;
+            $resultingCustomerObj = $dataService->Add($customerObj);
+            
+            $retryError = $dataService->getLastError();
+            if ($retryError) {
+                throw new \Exception('QuickBooks Error after retry: ' . $retryError->getResponseBody());
+            }
+
+            return $resultingCustomerObj->Id;
+        }
+
         \Log::error('QuickBooks Customer Creation Failed', [
             'statusCode'   => $error->getHttpStatusCode(),
-            'responseBody' => $error->getResponseBody()
+            'responseBody' => $xmlError
         ]);
-        throw new \Exception('QuickBooks Error: ' . $error->getResponseBody());
+        throw new \Exception('QuickBooks Error: ' . $xmlError);
     }
 
     if (!$resultingCustomerObj) {
         throw new \Exception('Failed to create customer in QuickBooks. Null response returned.');
     }
 
-    return $resultingCustomerObj->Id; // 👈 Return ID string
+    return $resultingCustomerObj->Id;
 }
 
     private function getOrCreateItem($dataService, $name, $price, $incomeAccountRef)
