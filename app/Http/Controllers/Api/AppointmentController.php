@@ -540,4 +540,46 @@ class AppointmentController extends Controller
             Log::error('Schedule SMS Error: ' . $e->getMessage());
         }
     }
+
+
+    /**
+     * Private Helper function to send raw custom SMS via Vonage & Log
+     */
+    private function sendRawSms(string $phone, string $messageText)
+    {
+        try {
+            $response = Http::withOptions([
+                'verify' => false,
+                'curl'   => [
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_SSL_VERIFYHOST => false,
+                ]
+            ])->post('https://rest.nexmo.com/sms/json', [
+                'api_key'    => config('services.vonage.key'),
+                'api_secret' => config('services.vonage.secret'),
+                'to'         => $phone,
+                'from'       => config('services.vonage.sms_from') ?? 'Glazier',
+                'text'       => $messageText
+            ]);
+
+            if ($response->successful()) {
+                $resData = $response->json();
+                $currentMessage = $resData['messages'][0] ?? null;
+
+                if ($currentMessage && $currentMessage['status'] == 0) {
+                    SmsLog::create([
+                        'phone_number'      => $phone,
+                        'type'              => 'outgoing',
+                        'text'              => $messageText,
+                        'vonage_message_id' => $currentMessage['message-id'] ?? null,
+                        'status'            => 'sent'
+                    ]);
+                } else {
+                    Log::error('Vonage Raw SMS Rejection: ' . ($currentMessage['error-text'] ?? 'Unknown Error'));
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('Raw SMS Error: ' . $e->getMessage());
+        }
+    }
 }
