@@ -179,7 +179,7 @@ class AppointmentController extends Controller
         $appointment = Appointment::create($validated);
 
         // 4. Client Confirmation Page Link Generation
-        $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'https://theglasspeople.com'));
+        $frontendUrl = 'https://theglasspeople.com';
         $approvalLink = "{$frontendUrl}/site-visit/confirm/{$appointment->id}";
 
         // 5. Send Email with Link & Log DB Record
