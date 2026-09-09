@@ -181,7 +181,7 @@ class AppointmentController extends Controller
 
         // 4. Client Confirmation Page Link Generation
         $frontendUrl = 'https://theglasspeople.com';
-        $encryptedId = urlencode(Crypt::encryptString($appointment->id));
+        $encryptedId = rtrim(strtr(base64_encode($appointment->id), '+/', '-_'), '=');
         $approvalLink = "{$frontendUrl}/site-visit/confirm/". $encryptedId;
 
         // 5. Send Email with Link & Log DB Record
@@ -312,7 +312,8 @@ class AppointmentController extends Controller
 
             $lead = $appointment->lead;
             $frontendUrl = 'https://theglasspeople.com';
-            $encryptedId = urlencode(Crypt::encryptString($appointment->id));
+            $encryptedId = rtrim(strtr(base64_encode($appointment->id), '+/', '-_'), '=');
+            // $appointmentId = base64_decode(strtr($shortToken, '-_', '+/'));
             $approvalLink = "{$frontendUrl}/site-visit/confirm/". $encryptedId;
 
             // Send notification if Date/Time changed
