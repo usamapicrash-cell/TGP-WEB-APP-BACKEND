@@ -6,10 +6,13 @@ use Illuminate\Http\Request;
 use App\Models\Appointment;
 use App\Models\Lead;
 use App\Models\Email;
+use App\Models\SmsLog;
 use App\Mail\ScheduleConfirmationMail;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log; // Controller ke top par import zaroori hai
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Auth;
 
 class AppointmentController extends Controller
 {
@@ -128,7 +131,7 @@ class AppointmentController extends Controller
     {
         $validated = $request->validate([
             'title'       => 'required|string|max:255',
-            'date'        => 'required|date',
+            'date'        => 'required|date|after_or_equal:today',
             'time'        => 'required',
             'end_time'    => 'nullable',
             'status'      => 'required|string',
@@ -136,17 +139,74 @@ class AppointmentController extends Controller
             'icon'        => 'nullable|string',
         ]);
 
+        // 1. Past Time Check (agar aaj ki date ho)
+        if ($validated['date'] === date('Y-m-d')) {
+            $currentTime = date('H:i:s');
+            if ($validated['time'] < $currentTime) {
+                return response()->json([
+                    'message' => 'Invalid Time: You cannot schedule a site visit in the past.'
+                ], 422);
+            }
+        }
+
+        // 2. Fetch Lead & Glazier Conflict Check
+        $lead = Lead::with(['gjob.glazier', 'gjob.activities'])->findOrFail($leadId);
+        $glazierId = $lead->gjob->glazier_id ?? null;
+
+        if ($glazierId) {
+            $requestedTime = $validated['time'];
+            $startTimeLimit = date('H:i:s', strtotime($requestedTime . ' -2 hours + 1 minute'));
+            $endTimeLimit = date('H:i:s', strtotime($requestedTime . ' +2 hours - 1 minute'));
+
+            $conflict = Appointment::where('date', $validated['date'])
+                ->whereHas('lead.gjob', function ($query) use ($glazierId) {
+                    $query->where('glazier_id', $glazierId);
+                })
+                ->whereBetween('time', [$startTimeLimit, $endTimeLimit])
+                ->exists();
+
+            if ($conflict) {
+                $readableTime = date('h:i A', strtotime($requestedTime));
+                return response()->json([
+                    'message' => "Schedule Conflict: Glazier needs a 2-hour gap. $readableTime is too close to another booking."
+                ], 422);
+            }
+        }
+
+        // 3. Create Appointment Record
         $validated['lead_id'] = $leadId;
         $validated['type'] = 'site_visit';
-
         $appointment = Appointment::create($validated);
 
-        // Send Email and Log DB Record
-        $this->sendScheduleEmail($appointment, 'Site Visit');
+        // 4. Client Confirmation Page Link Generation
+        $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'https://theglasspeople.com'));
+        $approvalLink = "{$frontendUrl}/site-visit/confirm/{$appointment->id}";
+
+        // 5. Send Email with Link & Log DB Record
+        $this->sendScheduleEmail($appointment, 'Site Visit', $approvalLink);
+
+        // 6. Send SMS to Client via Vonage
+        $clientPhone = $lead->phone ?? $lead->client_phone ?? null;
+        if ($clientPhone) {
+            $this->sendScheduleSms($clientPhone, $appointment, $approvalLink);
+        }
+
+        // 7. Activity History Logging
+        if ($lead->gjob) {
+            $readableDate = date('M d, Y', strtotime($appointment->date));
+            $readableTime = date('h:i A', strtotime($appointment->time));
+
+            $lead->gjob->activities()->create([
+                'user_id'     => Auth::id(),
+                'action'      => 'Site Visit Scheduled',
+                'description' => "Site visit '{$appointment->title}' scheduled for {$readableDate} at {$readableTime}. Confirmation request sent to client.",
+            ]);
+        }
 
         return response()->json([
-            'message' => 'Site visit logged successfully and email sent.',
-            'data'    => $appointment
+            'message'       => 'Site visit logged successfully, SMS and Email sent to client.',
+            'data'          => $appointment->load('lead.gjob.glazier'),
+            'approval_link' => $approvalLink
         ], 201);
     }
 
@@ -320,7 +380,7 @@ class AppointmentController extends Controller
     /**
      * Private Helper function to trigger Mail and log in `emails` table.
      */
-   private function sendScheduleEmail(Appointment $appointment, string $typeLabel)
+    private function sendScheduleEmail(Appointment $appointment, string $typeLabel, string $approvalLink)
     {
         try {
             $appointment->loadMissing(['lead.gjob.glazier']);
@@ -338,8 +398,6 @@ class AppointmentController extends Controller
             }
 
             $gjob = $lead->gjob;
-
-            // Dynamic Reference Code Extraction (Fallbacks: job_number -> order_no -> lead_number)
             $refCode = $gjob->job_number 
                 ?? $lead->order_no 
                 ?? $lead->lead_number 
@@ -353,21 +411,17 @@ class AppointmentController extends Controller
                 'site_address'   => $lead->address ?? $lead->job_address ?? null,
                 'glazier_name'   => $gjob->glazier->name ?? null,
                 'notes'          => $appointment->description,
+                'approval_link'  => $approvalLink, // Dynamic Link Pass Ki Gayi Hai
             ];
 
             $sender = env('SENDER_EMAIL', 'sales@theglasspeople.com');
-            $subject = "Confirmation: {$typeLabel} Scheduled - Ref: {$refCode}";
+            $subject = "Action Required: Confirm Your {$typeLabel} - Ref: {$refCode}";
 
-            // 1. Mailable Instance
             $mailable = new ScheduleConfirmationMail($mailData);
-
-            // 2. Send Mail
             Mail::to($customerEmail)->send($mailable);
 
-            // 3. Render HTML Body for DB Log
             $htmlContent = $mailable->render();
 
-            // 4. Record Save in Email History
             Email::create([
                 'sender'    => $sender,
                 'receiver'  => $customerEmail,
@@ -379,15 +433,59 @@ class AppointmentController extends Controller
 
             Log::info('Schedule Confirmation Email Sent & Saved to DB', [
                 'appointment_id' => $appointment->id,
-                'reference_code' => $refCode,
                 'customer_email' => $customerEmail,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Schedule Email Sending Error: ' . $e->getMessage(), [
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
+            Log::error('Schedule Email Sending Error: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Private Helper function to Send SMS via Vonage & Log
+     */
+    private function sendScheduleSms(string $phone, Appointment $appointment, string $approvalLink)
+    {
+        try {
+            $lead = $appointment->lead;
+            $clientName = $lead->client_name ?? 'Customer';
+            $formattedDate = date('d M Y', strtotime($appointment->date));
+            $formattedTime = date('h:i A', strtotime($appointment->time));
+
+            $messageText = "Hello {$clientName}, your Site Visit has been scheduled for {$formattedDate} at {$formattedTime}. Please review and confirm or leave a note here: {$approvalLink}";
+
+            $response = Http::withOptions([
+                'verify' => false,
+                'curl'   => [
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_SSL_VERIFYHOST => false,
+                ]
+            ])->post('https://rest.nexmo.com/sms/json', [
+                'api_key'    => config('services.vonage.key'),
+                'api_secret' => config('services.vonage.secret'),
+                'to'         => $phone,
+                'from'       => config('services.vonage.sms_from') ?? 'Glazier',
+                'text'       => $messageText
             ]);
+
+            if ($response->successful()) {
+                $resData = $response->json();
+                $currentMessage = $resData['messages'][0] ?? null;
+
+                if ($currentMessage && $currentMessage['status'] == 0) {
+                    SmsLog::create([
+                        'phone_number'      => $phone,
+                        'type'              => 'outgoing',
+                        'text'              => $messageText,
+                        'vonage_message_id' => $currentMessage['message-id'] ?? null,
+                        'status'            => 'sent'
+                    ]);
+                } else {
+                    Log::error('Vonage SMS Rejection: ' . ($currentMessage['error-text'] ?? 'Unknown Error'));
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('Schedule SMS Error: ' . $e->getMessage());
         }
     }
 }
