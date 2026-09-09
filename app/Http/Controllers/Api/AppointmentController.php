@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log; // Controller ke top par import zaroori hai
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Crypt;
 
 class AppointmentController extends Controller
 {
@@ -180,7 +181,8 @@ class AppointmentController extends Controller
 
         // 4. Client Confirmation Page Link Generation
         $frontendUrl = 'https://theglasspeople.com';
-        $approvalLink = "{$frontendUrl}/site-visit/confirm/{$appointment->id}";
+        $encryptedId = urlencode(Crypt::encryptString($appointment->id));
+        $approvalLink = "{$frontendUrl}/site-visit/confirm/". $encryptedId;
 
         // 5. Send Email with Link & Log DB Record
         $this->sendScheduleEmail($appointment, 'Site Visit', $approvalLink);
