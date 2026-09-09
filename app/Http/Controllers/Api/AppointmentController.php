@@ -266,7 +266,7 @@ class AppointmentController extends Controller
         return response()->json($appointment->load('lead.gjob.glazier'), 201);
     }
 
-       public function site_visit_update(Request $request, $id)
+    public function site_visit_update(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [
             'title'       => 'required|string|max:255',
@@ -284,18 +284,16 @@ class AppointmentController extends Controller
         }
 
         try {
-            $appointment = Appointment::find($id);
+            $appointment = Appointment::with('lead.gjob.activities')->find($id);
 
             if (!$appointment) {
                 return response()->json(['message' => 'Appointment not found.'], 404);
             }
 
-            // 1. Purani date/time aur status capture karein
             $oldDate   = $appointment->date;
             $oldTime   = $appointment->time;
             $oldStatus = $appointment->status;
 
-            // 2. Update record
             $appointment->update([
                 'title'       => $request->title,
                 'date'        => $request->date,
@@ -307,14 +305,47 @@ class AppointmentController extends Controller
                 'icon'        => $request->icon ?? 'bi-chat-dots',
             ]);
 
-            // 3. Condition Checks
             $isDateTimeChanged = ($oldDate !== $request->date) || ($oldTime !== $request->time);
-            $isStatusOnlyChange = ($oldStatus !== $request->status) && !$isDateTimeChanged;
+            $isStatusChanged   = ($oldStatus !== $request->status);
 
-            // Email tabhi bhejein jab date/time change ho aur status cancelled/completed NA ho
+            $lead = $appointment->lead;
+            $frontendUrl = 'https://theglasspeople.com';
+            $approvalLink = "{$frontendUrl}/site-visit/confirm/{$appointment->id}";
+
+            // Send notification if Date/Time changed
             if ($isDateTimeChanged && !in_array(strtolower($request->status), ['completed', 'cancelled'])) {
                 $typeLabel = ucfirst(str_replace('_', ' ', $request->type)) . ' Rescheduled';
-                $this->sendScheduleEmail($appointment, $typeLabel);
+                
+                // Email
+                $this->sendScheduleEmail($appointment, $typeLabel, $approvalLink);
+                
+                // SMS
+                $clientPhone = $lead->phone ?? $lead->client_phone ?? null;
+                if ($clientPhone) {
+                    $this->sendScheduleSms($clientPhone, $appointment, $approvalLink, 'Rescheduled');
+                }
+            }
+
+            // History / Activity Log
+            if ($lead && $lead->gjob) {
+                $changes = [];
+                if ($isDateTimeChanged) {
+                    $newDate = date('M d, Y', strtotime($request->date));
+                    $newTime = date('h:i A', strtotime($request->time));
+                    $changes[] = "rescheduled to {$newDate} at {$newTime}";
+                }
+                if ($isStatusChanged) {
+                    $changes[] = "status changed to '{$request->status}'";
+                }
+                if (empty($changes)) {
+                    $changes[] = "details updated";
+                }
+
+                $lead->gjob->activities()->create([
+                    'user_id'     => Auth::id(),
+                    'action'      => 'Site Visit Updated',
+                    'description' => "Site visit '{$appointment->title}' was " . implode(' and ', $changes) . ".",
+                ]);
             }
 
             return response()->json([
@@ -333,10 +364,31 @@ class AppointmentController extends Controller
     public function destroy($id)
     {
         try {
-            $appointment = Appointment::find($id);
+            $appointment = Appointment::with('lead.gjob.activities')->find($id);
 
             if (!$appointment) {
                 return response()->json(['message' => 'Appointment not found.'], 404);
+            }
+
+            $lead = $appointment->lead;
+            $title = $appointment->title;
+            $dateFormatted = date('M d, Y', strtotime($appointment->date));
+            $timeFormatted = date('h:i A', strtotime($appointment->time));
+
+            // Activity Log
+            if ($lead && $lead->gjob) {
+                $lead->gjob->activities()->create([
+                    'user_id'     => Auth::id(),
+                    'action'      => 'Site Visit Cancelled',
+                    'description' => "Site visit '{$title}' scheduled for {$dateFormatted} at {$timeFormatted} was deleted/cancelled.",
+                ]);
+            }
+
+            // SMS Alert on Delete
+            $clientPhone = $lead->phone ?? $lead->client_phone ?? null;
+            if ($clientPhone) {
+                $messageText = "Hello {$lead->client_name}, your Site Visit '{$title}' on {$dateFormatted} at {$timeFormatted} has been cancelled. Contact us for re-scheduling.";
+                $this->sendRawSms($clientPhone, $messageText);
             }
 
             $appointment->delete();
