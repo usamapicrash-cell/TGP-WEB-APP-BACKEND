@@ -312,7 +312,8 @@ class AppointmentController extends Controller
 
             $lead = $appointment->lead;
             $frontendUrl = 'https://theglasspeople.com';
-            $approvalLink = "{$frontendUrl}/site-visit/confirm/{$appointment->id}";
+            $encryptedId = urlencode(Crypt::encryptString($appointment->id));
+            $approvalLink = "{$frontendUrl}/site-visit/confirm/". $encryptedId;
 
             // Send notification if Date/Time changed
             if ($isDateTimeChanged && !in_array(strtolower($request->status), ['completed', 'cancelled'])) {
