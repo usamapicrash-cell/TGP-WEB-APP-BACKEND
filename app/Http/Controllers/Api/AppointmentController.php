@@ -432,13 +432,13 @@ class AppointmentController extends Controller
             $oldStatus = $appointment->status;
             $newStatus = $request->status;
 
-            if ($oldStatus === $newStatus) {
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Status is already set to ' . $newStatus,
-                    'data'    => $appointment
-                ], 200);
-            }
+            // if ($oldStatus === $newStatus) {
+            //     return response()->json([
+            //         'success' => true,
+            //         'message' => 'Status is already set to ' . $newStatus,
+            //         'data'    => $appointment
+            //     ], 200);
+            // }
 
             // Status update
             $appointment->status = $newStatus;
