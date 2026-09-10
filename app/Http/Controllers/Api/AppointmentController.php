@@ -17,6 +17,18 @@ use Illuminate\Support\Facades\Crypt;
 
 class AppointmentController extends Controller
 {
+
+    public function show($id)
+    {
+        $appointment = Appointment::with(['lead.gjob.glazier'])->find($id);
+
+        if (!$appointment) {
+            return response()->json(['message' => 'Appointment not found.'], 404);
+        }
+
+        return response()->json($appointment);
+    }
+    
     public function glazier_appointments(Request $request)
     {
         try {
