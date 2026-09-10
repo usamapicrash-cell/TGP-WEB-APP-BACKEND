@@ -30,6 +30,8 @@ use App\Http\Controllers\Api\{
 use App\Http\Controllers\QuickBooksController;
 use Illuminate\Http\Request;
 
+Route::get('/appointments/{id}', [AppointmentController::class, 'show']);
+        
 Route::get('/quickbooks/connect', [QuickBooksController::class, 'connect']);
 Route::get('/quickbooks/callback', [QuickBooksController::class, 'callback']);
 Route::get('/quickbooks/inventory', [QuickBooksController::class, 'getInventory']);
@@ -168,8 +170,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/appointments/lead/{leadId}', [AppointmentController::class, 'site_visit_store']);
         Route::put('/appointments/{leadId}', [AppointmentController::class, 'site_visit_update']);
         Route::put('/appointments/{id}/status', [AppointmentController::class, 'updateStatus']);
-        Route::get('/appointments/{id}', [AppointmentController::class, 'show']);
-        
+
         // Chat
         // Send chat message
         Route::get('/chat/conversations', [JobChatController::class, 'getConversations']);
