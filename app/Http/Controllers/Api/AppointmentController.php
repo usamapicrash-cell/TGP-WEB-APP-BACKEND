@@ -28,7 +28,7 @@ class AppointmentController extends Controller
 
         return response()->json($appointment);
     }
-    
+
     public function glazier_appointments(Request $request)
     {
         try {
@@ -426,13 +426,61 @@ class AppointmentController extends Controller
         ]);
 
         try {
-            $appointment = Appointment::findOrFail($id);
-            $appointment->status = $request->status;
+            // Eager load relationships
+            $appointment = Appointment::with(['lead.gjob.activities'])->findOrFail($id);
+            
+            $oldStatus = $appointment->status;
+            $newStatus = $request->status;
+
+            if ($oldStatus === $newStatus) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Status is already set to ' . $newStatus,
+                    'data'    => $appointment
+                ], 200);
+            }
+
+            // Status update
+            $appointment->status = $newStatus;
             $appointment->save();
+
+            $lead = $appointment->lead;
+            $formattedDate = date('M d, Y', strtotime($appointment->date));
+            $formattedTime = date('h:i A', strtotime($appointment->time));
+
+            // Action performer determination (Auth user or Customer/System)
+            $userId = Auth::check() ? Auth::id() : 0; 
+
+            // 1. Activity Log
+            if ($lead && $lead->gjob) {
+                $lead->gjob->activities()->create([
+                    'user_id'     => $userId, // Logged-in user ki ID ya 0 for Customer/System
+                    'action'      => 'Appointment Status Updated',
+                    'description' => "Status for appointment '{$appointment->title}' (scheduled on {$formattedDate} at {$formattedTime}) was changed from '{$oldStatus}' to '{$newStatus}'.",
+                ]);
+            }
+
+            // 2. In-App User Notification (Database Notification)
+            // Check if assigned user exists (e.g., glazier or lead assigned user)
+            $adminUser = User::whereHas('role', function($q) {
+                    $q->where('level', 3);
+                })->inRandomOrder()->first();
+
+            $assignedTo = $adminUser ? $adminUser->id : 1;
+            if ($assignedTo) {
+                \App\Models\UserNotification::create([
+                    'title'        => 'Appointment Status Updated',
+                    'msg'          => "Appointment '{$appointment->title}' status changed from {$oldStatus} to {$newStatus}.",
+                    'type'         => 'appointment_status',
+                    'user_id'      => $assignedTo,
+                    'from_user_id' => $userId, // Who triggered it
+                    'read_at'      => null,
+                ]);
+            }
 
             return response()->json([
                 'success' => true,
-                'message' => 'Status updated successfully',
+                'message' => 'Status updated, history logged, and notification created successfully.',
                 'data'    => $appointment
             ], 200);
 
