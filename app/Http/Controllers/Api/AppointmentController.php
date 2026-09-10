@@ -486,6 +486,10 @@ class AppointmentController extends Controller
             ], 200);
 
         } catch (\Exception $e) {
+            Log::error('Status update failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update status',
