@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Appointment;
 use App\Models\Lead;
 use App\Models\Email;
+use App\Models\User;
 use App\Models\SmsLog;
 use App\Mail\ScheduleConfirmationMail;
 use Illuminate\Support\Facades\Mail;
