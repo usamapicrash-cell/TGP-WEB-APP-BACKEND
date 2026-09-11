@@ -450,7 +450,7 @@ class AppointmentController extends Controller
             $formattedTime = date('h:i A', strtotime($appointment->time));
 
             // Action performer determination (Auth user or Customer/System)
-            $userId = Auth::check() ? Auth::id() : 0; 
+            $userId = Auth::check() ? Auth::id() : 1; 
 
             // 1. Activity Log
             if ($lead && $lead->gjob) {
@@ -474,7 +474,7 @@ class AppointmentController extends Controller
                     'msg'          => "Appointment '{$appointment->title}' status changed from {$oldStatus} to {$newStatus}.",
                     'type'         => 'appointment_status',
                     'user_id'      => $assignedTo,
-                    'from_user_id' => $userId, // Who triggered it
+                    'from_user_id' => 0, // Who triggered it
                     'read_at'      => null,
                 ]);
             }
