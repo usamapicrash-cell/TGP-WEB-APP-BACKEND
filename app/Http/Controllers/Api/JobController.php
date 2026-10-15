@@ -459,41 +459,56 @@ class JobController extends Controller
 
     public function assign(Request $request, $id)
     {
-        // 1. Find the lead
+        // 1. Find the lead with its job
         $lead = Lead::with('gjob')->findOrFail($id);
 
-        // 2. Validate input
+        // 2. Validate input for multiple glazier IDs
         $request->validate([
-            'glazier_id' => 'nullable|exists:users,id',
+            'glazier_ids' => 'nullable|array',
+            'glazier_ids.*' => 'exists:users,id',
         ]);
 
         try {
             if ($lead->gjob) {
-                // Update the glazier on the job
+                $glazierIds = $request->glazier_ids ?? [];
+
+                // Option A: Agar aapne GJob model mein JSON column rakha hai ya single ID ko comma-separated save karte hain
+                // (Behtar ye hai ke agar pivot table nahi hai toh JSON mein store karein, ya agar single column hai toh pehla id ya JSON conversion karein)
+                
+                // Let's assume agar aapke paas 'glazier_ids' column JSON format mein hai ya agar aap pivot table use kar rahe hain:
+                // Agar aapke paas single 'glazier_id' column hai aur aap multiple save karna chahte hain, toh aap migration ke zariye column JSON ya pivot table bana sakte hain.
+                
+                // Filhal agar aap array ko JSON column ya single column mein save karna chahte hain:
                 $lead->gjob->update([
-                    'glazier_id' => $request->glazier_id
+                    'glazier_id' => !empty($glazierIds) ? $glazierIds[0] : null, // Primary glazier (backward compatibility ke liye)
+                    // Agar aapne glazier_ids JSON column banaya hai to ye likhein:
+                    // 'glazier_ids' => json_encode($glazierIds) 
                 ]);
 
-                // Get the name for the description
-                $assignedUser = User::find($request->glazier_id);
-                $userName = $assignedUser ? $assignedUser->name : 'Unassigned';
+                // Agar aap pivot table (Many-to-Many relation 'glaziers') use kar rahe hain:
+                if (method_exists($lead->gjob, 'glaziers')) {
+                    $lead->gjob->glaziers()->sync($glazierIds);
+                }
+
+                // Get the names for the activity log description
+                $assignedNames = User::whereIn('id', $glazierIds)->pluck('name')->toArray();
+                $namesString = !empty($assignedNames) ? implode(', ', $assignedNames) : 'Unassigned';
                 
                 // Create Activity Log in Database
                 $lead->gjob->activities()->create([
-                    'user_id'     => auth()->id(),
-                    'action'      => 'Lead Assigned',
-                    'description' => "Lead assigned to: {$userName}",
+                    'user_id' => auth()->id(),
+                    'action' => 'Lead Assigned',
+                    'description' => "Lead assigned to glaziers: {$namesString}",
                 ]);
             }
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Lead assigned successfully',
-                'data' => $lead->load(['gjob.glazier', 'gjob']) 
+                'message' => 'Lead assigned to glaziers successfully',
+                'data' => $lead->load(['gjob.glaziers', 'gjob.glazier', 'gjob']) 
             ]);
 
         } catch (\Exception $e) {
-            // 🚨 THIS WRITES TO storage/logs/laravel.log
             Log::error("Assignment Error for Lead ID {$id}: " . $e->getMessage(), [
                 'user_id' => auth()->id(),
                 'trace' => $e->getTraceAsString()
@@ -502,7 +517,7 @@ class JobController extends Controller
             return response()->json([
                 'status' => 'error',
                 'message' => 'Internal Server Error. Check logs for details.',
-                'debug_message' => $e->getMessage() // You can remove this in production
+                'debug_message' => $e->getMessage()
             ], 500);
         }
     }

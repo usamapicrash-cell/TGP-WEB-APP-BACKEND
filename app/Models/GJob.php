@@ -30,4 +30,9 @@ class GJob extends Model
     public function media()      { return $this->hasMany(JobMedia::class, 'gjob_id'); }
     public function activities() { return $this->hasMany(JobActivity::class, 'gjob_id'); }
     public function chats()      { return $this->hasMany(JobChat::class, 'gjob_id'); }
+
+    public function glaziers()
+    {
+        return $this->belongsToMany(User::class, 'gjob_glaziers', 'gjob_id', 'user_id');
+    }
 }
