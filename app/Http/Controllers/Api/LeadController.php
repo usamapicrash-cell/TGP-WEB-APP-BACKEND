@@ -267,6 +267,9 @@ class LeadController extends Controller
     /**
      * DELETE /leads/{id}
      */
+    /**
+     * DELETE /leads/{id}
+     */
     public function destroy($id)
     {
         $query = Lead::where('id', $id);
@@ -286,7 +289,6 @@ class LeadController extends Controller
                 $lead->gjob->activities()->delete();
                 $lead->gjob->chats()->delete();
                 
-                // Aakhir mein GJob khud delete ho ga
                 $lead->gjob->delete();
             }
 
@@ -305,21 +307,18 @@ class LeadController extends Controller
                 $lead->purchaseOrders()->delete();
             }
 
-            // 5. Emails delete karein
-            Email::where('lead_id', $lead->id)->delete();
-
-            // 6. Appointments delete karein
+            // 5. Appointments delete karein
             if (class_exists(\App\Models\Appointment::class)) {
                 \App\Models\Appointment::where('lead_id', $lead->id)->delete();
             }
 
-            // 7. Sabse aakhir mein Lead delete ho jaye gi
+            // 6. Sabse aakhir mein Lead delete ho jaye gi
             $lead->delete();
         });
 
         return response()->json([
             'success' => true,
-            'message' => 'Lead, Job and all related records deleted successfully'
+            'message' => 'Lead, GJob and all related records deleted successfully'
         ]);
     }
 
