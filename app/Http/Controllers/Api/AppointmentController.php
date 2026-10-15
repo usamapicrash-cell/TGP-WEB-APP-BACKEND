@@ -151,6 +151,7 @@ class AppointmentController extends Controller
             'status'      => 'required|string',
             'description' => 'nullable|string',
             'icon'        => 'nullable|string',
+            'glazier_id'  => 'nullable|exists:users,id', // 👈 Validation add ki
         ]);
 
         // 1. Past Time Check (agar aaj ki date ho)
@@ -292,6 +293,7 @@ class AppointmentController extends Controller
             'description' => 'nullable|string',
             'type'        => 'required|string',
             'icon'        => 'nullable|string',
+            'glazier_id'  => 'nullable|exists:users,id', // 👈 Validation add ki
         ]);
 
         if ($validator->fails()) {
@@ -318,6 +320,7 @@ class AppointmentController extends Controller
                 'description' => $request->description,
                 'type'        => $request->type,
                 'icon'        => $request->icon ?? 'bi-chat-dots',
+                'glazier_id'  => $request->glazier_id, // 👈 Update glazier_id
             ]);
 
             $isDateTimeChanged = ($oldDate !== $request->date) || ($oldTime !== $request->time);
