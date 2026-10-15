@@ -264,6 +264,9 @@ class LeadController extends Controller
     /**
      * DELETE /leads/{id}
      */
+    /**
+     * DELETE /leads/{id}
+     */
     public function destroy($id)
     {
         $query = Lead::where('id', $id);
@@ -272,10 +275,51 @@ class LeadController extends Controller
             $query->where('created_by', auth()->id());
         }
 
-        $query->firstOrFail()->delete();
+        $lead = $query->firstOrFail();
+
+        DB::transaction(function () use ($lead) {
+            // 1. GJob aur uss se related tamam sub-records delete karein
+            if ($lead->gjob) {
+                $lead->gjob->attendances()->delete();
+                $lead->gjob->siteVisits()->delete();
+                $lead->gjob->media()->delete();
+                $lead->gjob->activities()->delete();
+                $lead->gjob->chats()->delete();
+                
+                // Aakhir mein GJob khud delete ho ga
+                $lead->gjob->delete();
+            }
+
+            // 2. Quotes delete karein
+            if (method_exists($lead, 'quotes')) {
+                $lead->quotes()->delete();
+            }
+
+            // 3. Payments delete karein
+            if (method_exists($lead, 'payments')) {
+                $lead->payments()->delete();
+            }
+
+            // 4. Purchase Orders delete karein
+            if (method_exists($lead, 'purchaseOrders')) {
+                $lead->purchaseOrders()->delete();
+            }
+
+            // 5. Emails delete karein
+            Email::where('lead_id', $lead->id)->delete();
+
+            // 6. Appointments delete karein
+            if (class_exists(\App\Models\Appointment::class)) {
+                \App\Models\Appointment::where('lead_id', $lead->id)->delete();
+            }
+
+            // 7. Sabse aakhir mein Lead delete ho jaye gi
+            $lead->delete();
+        });
 
         return response()->json([
-            'message' => 'Lead deleted successfully'
+            'success' => true,
+            'message' => 'Lead, Job and all related records deleted successfully'
         ]);
     }
 

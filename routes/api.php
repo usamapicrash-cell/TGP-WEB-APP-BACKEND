@@ -42,6 +42,7 @@ Route::post('/quickbooks/create-item', [QuickBooksController::class, 'createItem
 Route::post('/payment/webhook', [HelcimController::class, 'handleWebhook']);
 Route::post('/website/lead', [LeadController::class, 'web_store']);
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/password/email', [AuthController::class, 'sendResetLinkEmail']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::patch('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);

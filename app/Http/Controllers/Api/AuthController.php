@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\User;
 use App\Models\LoginHistory;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Password; // <--- Ye add karein
 
 class AuthController extends Controller
 {
@@ -50,7 +51,6 @@ class AuthController extends Controller
         $user = $request->user();
 
         if ($user) {
-            // Find and update history
             $history = LoginHistory::where('user_id', $user->id)
                 ->whereNull('logout_at')
                 ->latest()
@@ -60,12 +60,34 @@ class AuthController extends Controller
                 $history->update(['logout_at' => now()]);
             }
 
-            // Revoke the token
             $user->currentAccessToken()->delete();
             
             return response()->json(['message' => 'Logged out successfully']);
         }
 
         return response()->json(['message' => 'User not found'], 401);
+    }
+
+    // Forgot Password API
+    public function sendResetLinkEmail(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            return response()->json(['message' => 'We can\'t find a user with that e-mail address.'], 404);
+        }
+
+        // Frontend URL ke mutabiq password reset link generate karne ka custom callback
+        Password::createToken($user); // Optional agar broker use kar rahe hain
+        
+        $status = Password::broker()->sendResetLink(
+            $request->only('email')
+        );
+
+        return response()->json([
+            'message' => 'Password reset link sent successfully.'
+        ]);
     }
 }
