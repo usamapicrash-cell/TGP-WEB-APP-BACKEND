@@ -12,6 +12,7 @@ class JobChat extends Model
         'sender_id',
         'message',
         'attachment',
+        'glazier_id', // 👈 Yeh lazmi add karein
     ];
 
     public function job(): BelongsTo
