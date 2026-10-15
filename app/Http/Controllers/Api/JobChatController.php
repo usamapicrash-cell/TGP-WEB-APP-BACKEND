@@ -36,7 +36,7 @@ class JobChatController extends Controller
         foreach ($jobs as $job) {
             $glaziersList = $job->glaziers->isNotEmpty() ? $job->glaziers : ($job->glazier ? collect([$job->glazier]) : collect());
 
-            // 👈 Agar koi glazier assigned nahi hai, toh is job ko skip (ignore) kar dein
+            // Agar koi glazier assigned nahi hai, toh is job ko skip kar dein
             if ($glaziersList->isEmpty()) {
                 continue; 
             }
@@ -54,7 +54,7 @@ class JobChatController extends Controller
                         'customer_name' => ($job->lead->client_name ?? 'Customer') . " [{$glz->name}]",
                         'lead_number' => $job->lead->lead_number ?? 'N/A',
                     ],
-                    'last_msg' => $lastMessage ? $lastMessage.message : 'No messages yet. Start chat!',
+                    'last_msg' => $lastMessage ? $lastMessage->message : 'No messages yet. Start chat!', // 👈 Yahan arrow operator laga diya hai
                     'last_msg_at' => $lastMessage ? $lastMessage->created_at : $job->created_at,
                 ]);
             }
@@ -74,7 +74,6 @@ class JobChatController extends Controller
         
         $query = $job->chats()->with('sender')->orderBy('created_at', 'asc');
         
-        // Agar glazier_id pass hua hai toh sirf uski chats fetch hon gi
         if ($glazierId) {
             $query->where('glazier_id', $glazierId);
         } else {
@@ -113,7 +112,6 @@ class JobChatController extends Controller
             ]);
         }
 
-        // Message save karte waqt glazier_id store ho ga
         $chat = $job->chats()->create([
             'sender_id' => auth()->id(),
             'message' => $request->message,
