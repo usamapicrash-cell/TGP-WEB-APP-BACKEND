@@ -15,58 +15,58 @@ class JobChatController extends Controller
     // Fetch all chat messages for a job
 
     public function getConversations()
-{
-    $user = auth()->user();
-    $userId = $user->id;
-    
-    // Role check
-    $roleName = is_object($user->role) ? $user->role->name : $user->role;
-
-    \App\Models\UserNotification::where('user_id', $userId)
-        ->where('type', 'chat_message')
-        ->delete();
-    
-    // Base Query: Glazier aur Lead ke sath data fetch karein
-    $query = GJob::with(['lead:id,client_name,lead_number', 'glazier:id,name']);
-
-    if ($roleName !== 'admin') { 
-        $query->where('glazier_id', $user->id);
-    } 
-
-    $conversations = $query->get();
-
-    $formatted = $conversations->map(function($job) use ($roleName) {
-        // Last message fetch karein
-        $lastMessage = $job->chats()->latest()->first();
+    {
+        $user = auth()->user();
+        $userId = $user->id;
         
-        $display_name = ($roleName === 'admin') 
-                        ? ($job->glazier->name ?? 'Unassigned') 
-                        : 'Admin';
-        
-        return [
-            'id' => $job->id,
-            'status' => $job->status,
-            'display_name' => $display_name,
-            'lead' => [
-                'id' => $job->lead->id ?? null,
-                'customer_name' => $job->lead->client_name ?? 'N/A',
-                'lead_number' => $job->lead->lead_number ?? 'N/A',
-            ],
-            'last_msg' => $lastMessage ? $lastMessage->message : 'No messages yet. Start chat!',
-            // Sort karne ke liye hum timestamp save kar lete hain
-            'last_msg_at' => $lastMessage ? $lastMessage->created_at : $job->created_at,
-            'unread_count' => 0 
-        ];
-    })
-    // Yahan sorting logic add ki hai: Sabse naye message wali job upper ayegi
-    ->sortByDesc('last_msg_at')
-    ->values(); // values() indexes ko reset karne ke liye
+        // Role check
+        $roleName = is_object($user->role) ? $user->role->name : $user->role;
 
-    return response()->json([
-        'success' => true,
-        'data' => $formatted
-    ]);
-}
+        \App\Models\UserNotification::where('user_id', $userId)
+            ->where('type', 'chat_message')
+            ->delete();
+        
+        // Base Query: Glazier aur Lead ke sath data fetch karein
+        $query = GJob::with(['glaziers', 'lead:id,client_name,lead_number', 'glazier:id,name']);
+
+        if ($roleName !== 'admin') { 
+            $query->where('glazier_id', $user->id);
+        } 
+
+        $conversations = $query->get();
+
+        $formatted = $conversations->map(function($job) use ($roleName) {
+            // Last message fetch karein
+            $lastMessage = $job->chats()->latest()->first();
+            
+            $display_name = ($roleName === 'admin') 
+                            ? ($job->glazier->name ?? 'Unassigned') 
+                            : 'Admin';
+            
+            return [
+                'id' => $job->id,
+                'status' => $job->status,
+                'display_name' => $display_name,
+                'lead' => [
+                    'id' => $job->lead->id ?? null,
+                    'customer_name' => $job->lead->client_name ?? 'N/A',
+                    'lead_number' => $job->lead->lead_number ?? 'N/A',
+                ],
+                'last_msg' => $lastMessage ? $lastMessage->message : 'No messages yet. Start chat!',
+                // Sort karne ke liye hum timestamp save kar lete hain
+                'last_msg_at' => $lastMessage ? $lastMessage->created_at : $job->created_at,
+                'unread_count' => 0 
+            ];
+        })
+        // Yahan sorting logic add ki hai: Sabse naye message wali job upper ayegi
+        ->sortByDesc('last_msg_at')
+        ->values(); // values() indexes ko reset karne ke liye
+
+        return response()->json([
+            'success' => true,
+            'data' => $formatted
+        ]);
+    }
 
     public function index(GJob $job)
     {
