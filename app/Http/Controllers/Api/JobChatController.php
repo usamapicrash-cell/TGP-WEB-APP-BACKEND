@@ -30,34 +30,53 @@ class JobChatController extends Controller
             })->orWhere('glazier_id', $userId);
         }  
 
-        $conversations = $query->get();
+        $jobs = $query->get();
+        $formatted = collect();
 
-        $formatted = $conversations->map(function($job) use ($roleName) {
-            $lastMessage = $job->chats()->latest()->first();
-            
-            // Job ke saare assigned glaziers fetch karein
+        foreach ($jobs as $job) {
+            // Saare assigned glaziers collect karein (pivot table ya single glazier se)
             $glaziersList = $job->glaziers->isNotEmpty() ? $job->glaziers : ($job->glazier ? collect([$job->glazier]) : collect());
-            
-            return [
-                'id' => $job->id,
-                'status' => $job->status,
-                'glaziers' => $glaziersList->map(fn($g) => ['id' => $g->id, 'name' => $g->name]),
-                'lead' => [
-                    'id' => $job->lead->id ?? null,
-                    'customer_name' => $job->lead->client_name ?? 'N/A',
-                    'lead_number' => $job->lead->lead_number ?? 'N/A',
-                ],
-                'last_msg' => $lastMessage ? $lastMessage->message : 'No messages yet. Start chat!',
-                'last_msg_at' => $lastMessage ? $lastMessage->created_at : $job->created_at,
-                'unread_count' => 0 
-            ];
-        })
-        ->sortByDesc('last_msg_at')
-        ->values();
+
+            if ($glaziersList->isEmpty()) {
+                // Agar koi glazier assigned nahi hai toh aik default entry
+                $lastMessage = $job->chats()->whereNull('glazier_id')->latest()->first();
+                $formatted->push([
+                    'id' => $job->id,
+                    'glazier_id' => null,
+                    'display_name' => 'Unassigned',
+                    'lead' => [
+                        'id' => $job->lead->id ?? null,
+                        'customer_name' => $job->lead->client_name ?? 'N/A',
+                        'lead_number' => $job->lead->lead_number ?? 'N/A',
+                    ],
+                    'last_msg' => $lastMessage ? $lastMessage->message : 'No messages yet. Start chat!',
+                    'last_msg_at' => $lastMessage ? $lastMessage->created_at : $job->created_at,
+                ]);
+            } else {
+                // Har glazier ke liye alag conversation row banayein
+                foreach ($glaziersList as $glz) {
+                    $lastMessage = $job->chats()->where('glazier_id', $glz->id)->latest()->first();
+                    $formatted->push([
+                        'id' => $job->id,
+                        'glazier_id' => $glz->id,
+                        'display_name' => $glz->name,
+                        'lead' => [
+                            'id' => $job->lead->id ?? null,
+                            'customer_name' => $job->lead->client_name . " ({$glz->name})", // Name ke sath glazier show ho ga
+                            'lead_number' => $job->lead->lead_number ?? 'N/A',
+                        ],
+                        'last_msg' => $lastMessage ? $lastMessage->message : 'No messages yet. Start chat!',
+                        'last_msg_at' => $lastMessage ? $lastMessage->created_at : $job->created_at,
+                    ]);
+                }
+            }
+        }
+
+        $sorted = $formatted->sortByDesc('last_msg_at')->values();
 
         return response()->json([
             'success' => true,
-            'data' => $formatted
+            'data' => $sorted
         ]);
     }
 
@@ -66,10 +85,9 @@ class JobChatController extends Controller
         $glazierId = $request->query('glazier_id');
 
         $query = $job->chats()->with('sender')->orderBy('created_at', 'asc');
-
-        // Agar glazier_id pass kiya gaya hai toh specific filter karein (optional based on schema)
+        
         if ($glazierId) {
-            // Aap yahan chats ko glazier ke mutabiq filter kar sakte hain agar alag table ho
+            $query->where('glazier_id', $glazierId);
         }
 
         $chats = $query->get();
@@ -92,6 +110,7 @@ class JobChatController extends Controller
 
         $user = auth()->user();
         $attachmentPath = null;
+        $glazierId = $request->glazier_id;
 
         if ($request->hasFile('attachment')) {
             $attachmentPath = $request->file('attachment')->store('job-media', 'public');
@@ -107,6 +126,7 @@ class JobChatController extends Controller
             'sender_id' => auth()->id(),
             'message' => $request->message,
             'attachment' => $attachmentPath,
+            'glazier_id' => $glazierId,
         ]);
 
         JobActivity::create([
@@ -116,11 +136,7 @@ class JobChatController extends Controller
         ]);
 
         $roleName = is_object($user->role) ? $user->role->name : $user->role;
-        
-        // Agar admin bhej raha hai, toh request mein jo glazier_id hai usay notify karein
-        $receiverId = ($roleName === 'admin') 
-            ? ($request->glazier_id ?? $job->glazier_id) 
-            : ($job->lead->created_by ?? null);
+        $receiverId = ($roleName === 'admin') ? ($glazierId ?? $job->glazier_id) : ($job->lead->created_by ?? null);
 
         if ($receiverId) {
             \App\Models\UserNotification::create([
