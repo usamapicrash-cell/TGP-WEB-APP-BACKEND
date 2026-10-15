@@ -141,6 +141,7 @@ class AppointmentController extends Controller
     }
 
     // Site Visit Store
+    // Site Visit Store
     public function site_visit_store(Request $request, $leadId)
     {
         $validated = $request->validate([
@@ -151,10 +152,9 @@ class AppointmentController extends Controller
             'status'      => 'required|string',
             'description' => 'nullable|string',
             'icon'        => 'nullable|string',
-            'glazier_id'  => 'nullable|exists:users,id', // 👈 Validation add ki
+            'glazier_id'  => 'nullable|exists:users,id',
         ]);
 
-        // 1. Past Time Check (agar aaj ki date ho)
         if ($validated['date'] === date('Y-m-d')) {
             $currentTime = date('H:i:s');
             if ($validated['time'] < $currentTime) {
@@ -164,9 +164,9 @@ class AppointmentController extends Controller
             }
         }
 
-        // 2. Fetch Lead & Glazier Conflict Check
+        // Agar request mein glazier_id nahi aayi, toh lead ke gjob ka glazier use karein
         $lead = Lead::with(['gjob.glazier', 'gjob.activities'])->findOrFail($leadId);
-        $glazierId = $lead->gjob->glazier_id ?? null;
+        $glazierId = $validated['glazier_id'] ?? ($lead->gjob->glazier_id ?? null);
 
         if ($glazierId) {
             $requestedTime = $validated['time'];
@@ -174,9 +174,7 @@ class AppointmentController extends Controller
             $endTimeLimit = date('H:i:s', strtotime($requestedTime . ' +2 hours - 1 minute'));
 
             $conflict = Appointment::where('date', $validated['date'])
-                ->whereHas('lead.gjob', function ($query) use ($glazierId) {
-                    $query->where('glazier_id', $glazierId);
-                })
+                ->where('glazier_id', $glazierId) // 👈 Direct appointment table ka glazier check karein
                 ->whereBetween('time', [$startTimeLimit, $endTimeLimit])
                 ->exists();
 
@@ -188,26 +186,24 @@ class AppointmentController extends Controller
             }
         }
 
-        // 3. Create Appointment Record
+        // 3. Create Appointment Record (glazier_id save ho jaye gi)
         $validated['lead_id'] = $leadId;
         $validated['type'] = 'site_visit';
+        $validated['glazier_id'] = $glazierId; 
         $appointment = Appointment::create($validated);
 
-        // 4. Client Confirmation Page Link Generation
         $frontendUrl = 'https://theglasspeople.com';
         $encryptedId = rtrim(strtr(base64_encode($appointment->id), '+/', '-_'), '=');
         $approvalLink = "{$frontendUrl}/site-visit/confirm/". $encryptedId;
 
-        // 5. Send Email with Link & Log DB Record
+        // Email aur SMS call
         $this->sendScheduleEmail($appointment, 'Site Visit', $approvalLink);
 
-        // 6. Send SMS to Client via Vonage
         $clientPhone = $lead->phone ?? $lead->client_phone ?? null;
         if ($clientPhone) {
             $this->sendScheduleSms($clientPhone, $appointment, $approvalLink);
         }
 
-        // 7. Activity History Logging
         if ($lead->gjob) {
             $readableDate = date('M d, Y', strtotime($appointment->date));
             $readableTime = date('h:i A', strtotime($appointment->time));
@@ -221,7 +217,7 @@ class AppointmentController extends Controller
 
         return response()->json([
             'message'       => 'Site visit logged successfully, SMS and Email sent to client.',
-            'data'          => $appointment->load('lead.gjob.glazier'),
+            'data'          => $appointment->load('lead.gjob', 'glazier'),
             'approval_link' => $approvalLink
         ], 201);
     }
@@ -293,7 +289,7 @@ class AppointmentController extends Controller
             'description' => 'nullable|string',
             'type'        => 'required|string',
             'icon'        => 'nullable|string',
-            'glazier_id'  => 'nullable|exists:users,id', // 👈 Validation add ki
+            'glazier_id'  => 'nullable|exists:users,id',
         ]);
 
         if ($validator->fails()) {
@@ -301,15 +297,37 @@ class AppointmentController extends Controller
         }
 
         try {
-            $appointment = Appointment::with('lead.gjob.activities')->find($id);
+            $appointment = Appointment::with('lead.gjob.activities', 'glazier')->find($id);
 
             if (!$appointment) {
                 return response()->json(['message' => 'Appointment not found.'], 404);
             }
 
+            // Conflict Check agar time ya glazier change hua ho
+            $requestedGlazierId = $request->glazier_id;
+            if ($requestedGlazierId && ($appointment->date !== $request->date || $appointment->time !== $request->time || $appointment->glazier_id != $requestedGlazierId)) {
+                $requestedTime = $request->time;
+                $startTimeLimit = date('H:i:s', strtotime($requestedTime . ' -2 hours + 1 minute'));
+                $endTimeLimit = date('H:i:s', strtotime($requestedTime . ' +2 hours - 1 minute'));
+
+                $conflict = Appointment::where('date', $request->date)
+                    ->where('glazier_id', $requestedGlazierId)
+                    ->where('id', '!=', $id) // Current appointment ko chor kar baaki check karein
+                    ->whereBetween('time', [$startTimeLimit, $endTimeLimit])
+                    ->exists();
+
+                if ($conflict) {
+                    $readableTime = date('h:i A', strtotime($requestedTime));
+                    return response()->json([
+                        'message' => "Schedule Conflict: Glazier needs a 2-hour gap. $readableTime is too close to another booking."
+                    ], 422);
+                }
+            }
+
             $oldDate   = $appointment->date;
             $oldTime   = $appointment->time;
             $oldStatus = $appointment->status;
+            $oldGlazier = $appointment->glazier_id;
 
             $appointment->update([
                 'title'       => $request->title,
@@ -320,23 +338,26 @@ class AppointmentController extends Controller
                 'description' => $request->description,
                 'type'        => $request->type,
                 'icon'        => $request->icon ?? 'bi-chat-dots',
-                'glazier_id'  => $request->glazier_id, // 👈 Update glazier_id
+                'glazier_id'  => $requestedGlazierId,
             ]);
+
+            // Fresh data reload with new glazier relation
+            $appointment->load('glazier');
 
             $isDateTimeChanged = ($oldDate !== $request->date) || ($oldTime !== $request->time);
             $isStatusChanged   = ($oldStatus !== $request->status);
+            $isGlazierChanged  = ($oldGlazier != $requestedGlazierId);
 
             $lead = $appointment->lead;
             $frontendUrl = 'https://theglasspeople.com';
             $encryptedId = rtrim(strtr(base64_encode($appointment->id), '+/', '-_'), '=');
-            // $appointmentId = base64_decode(strtr($shortToken, '-_', '+/'));
             $approvalLink = "{$frontendUrl}/site-visit/confirm/". $encryptedId;
 
-            // Send notification if Date/Time changed
-            if ($isDateTimeChanged && !in_array(strtolower($request->status), ['completed', 'cancelled'])) {
+            // Send notification if Date, Time or Glazier changed
+            if (($isDateTimeChanged || $isGlazierChanged) && !in_array(strtolower($request->status), ['completed', 'cancelled'])) {
                 $typeLabel = ucfirst(str_replace('_', ' ', $request->type)) . ' Rescheduled';
                 
-                // Email
+                // Email (Is mein ab updated glazier ka naam jaye ga)
                 $this->sendScheduleEmail($appointment, $typeLabel, $approvalLink);
                 
                 // SMS
@@ -354,6 +375,9 @@ class AppointmentController extends Controller
                     $newTime = date('h:i A', strtotime($request->time));
                     $changes[] = "rescheduled to {$newDate} at {$newTime}";
                 }
+                if ($isGlazierChanged) {
+                    $changes[] = "glazier reassigned";
+                }
                 if ($isStatusChanged) {
                     $changes[] = "status changed to '{$request->status}'";
                 }
@@ -370,7 +394,7 @@ class AppointmentController extends Controller
 
             return response()->json([
                 'message' => 'Site visit updated successfully!',
-                'data'    => $appointment
+                'data'    => $appointment->load('lead.gjob', 'glazier')
             ], 200);
 
         } catch (\Exception $e) {
@@ -507,7 +531,7 @@ class AppointmentController extends Controller
     private function sendScheduleEmail(Appointment $appointment, string $typeLabel, string $approvalLink)
     {
         try {
-            $appointment->loadMissing(['lead.gjob.glazier']);
+            $appointment->loadMissing(['lead.gjob', 'glazier']); // 👈 appointment ka glazier load karein
             $lead = $appointment->lead;
 
             if (!$lead) {
@@ -533,9 +557,9 @@ class AppointmentController extends Controller
                 'type'           => $typeLabel,
                 'schedule_date'  => $appointment->date . ' ' . $appointment->time,
                 'site_address'   => $lead->address ?? $lead->job_address ?? null,
-                'glazier_name'   => $gjob->glazier->name ?? null,
+                'glazier_name'   => $appointment->glazier->name ?? ($gjob->glazier->name ?? null), // 👈 Selected glazier name pass ho ga
                 'notes'          => $appointment->description,
-                'approval_link'  => $approvalLink, // Dynamic Link Pass Ki Gayi Hai
+                'approval_link'  => $approvalLink,
             ];
 
             $sender = env('SENDER_EMAIL', 'sales@theglasspeople.com');
