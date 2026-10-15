@@ -79,15 +79,20 @@ class AuthController extends Controller
             return response()->json(['message' => 'We can\'t find a user with that e-mail address.'], 404);
         }
 
-        // Frontend URL ke mutabiq password reset link generate karne ka custom callback
-        Password::createToken($user); // Optional agar broker use kar rahe hain
-        
-        $status = Password::broker()->sendResetLink(
-            $request->only('email')
-        );
+        try {
+            $status = Password::broker()->sendResetLink(
+                $request->only('email')
+            );
 
-        return response()->json([
-            'message' => 'Password reset link sent successfully.'
-        ]);
+            if ($status == Password::RESET_LINK_SENT) {
+                return response()->json(['message' => 'Password reset link sent successfully.']);
+            }
+
+            return response()->json(['message' => __($status)], 400);
+
+        } catch (\Exception $e) {
+            \Log::error('Reset Password Email Error: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to send reset email. ' . $e->getMessage()], 500);
+        }
     }
 }
