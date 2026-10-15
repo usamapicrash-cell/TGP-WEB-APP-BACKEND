@@ -88,21 +88,24 @@ class LeadController extends Controller
         return response()->json(array_merge($leads->toArray(), ['stats' => $stats]));
     }
 
-    public function show(GJob $job)
+    public function show($id)
     {
-        $user = auth()->user();
+        // 👈 gjob.glaziers yahan bhi add kiya hai
+        $query = Lead::with([
+            'creator', 
+            'leadType', 
+            'gjob.glaziers',
+            'gjob.activities' => fn($q) => $q->latest(),
+            'gjob.activities.user'
+        ])->where('id', $id);
 
-        if ($user->role->level > 2) {
-            $isCreator = $job->lead && $job->lead->created_by == $user->id;
-            $isAssigned = $job->glaziers()->where('users.id', $user->id)->exists() || $job->glazier_id == $user->id;
-            
-            if (!$isCreator && !$isAssigned) {
-                abort(403, 'Unauthorized');
-            }
+        if (auth()->user()->role->level > 2) {
+            $query->where('created_by', auth()->id());
         }
 
-        // 👈 glaziers aur lead data properly load karein
-        return $job->load(['lead.creator', 'lead.gjob', 'glaziers', 'glazier', 'activities' => fn($q) => $q->latest(), 'activities.user']);
+        $lead = $query->firstOrFail();
+
+        return response()->json($lead);
     }
 
     public function getlead_Glazier($id)
