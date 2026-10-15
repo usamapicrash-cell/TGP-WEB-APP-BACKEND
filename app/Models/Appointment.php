@@ -2,6 +2,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Appointment extends Model
 {
@@ -11,7 +12,7 @@ class Appointment extends Model
     {
         return $this->belongsTo(User::class, 'glazier_id');
     }
-    
+
     public function lead() {
         return $this->belongsTo(Lead::class);
     }
