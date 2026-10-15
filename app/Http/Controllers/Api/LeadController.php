@@ -44,7 +44,8 @@ class LeadController extends Controller
 
     public function index(Request $request)
     {
-        $query = Lead::with(['creator', 'leadType', 'gjob', 'gjob.media.user'])
+        // 👈 gjob.glaziers yahan add kiya hai
+        $query = Lead::with(['creator', 'leadType', 'gjob.glaziers', 'gjob.media.user'])
                     ->whereHas('gjob', function($q) {
                         $q->where('status', 'lead');
                     });
@@ -52,23 +53,22 @@ class LeadController extends Controller
         if (auth()->user()->role->level > 2) {
             $query->where('created_by', auth()->id());
         }
-       // 2. Search Filter (Client Name, Company, or Project Type)
+
+        // Search Filter
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function($q) use ($search) {
                 $q->where('lead_number', 'like', '%' . $search . '%')
-                  ->orwhere('client_name', 'like', '%' . $search . '%')
+                  ->orWhere('client_name', 'like', '%' . $search . '%')
                   ->orWhere('company', 'like', '%' . $search . '%')
                   ->orWhere('value', 'like', '%' . $search . '%')
                   ->orWhere('phone', 'like', '%' . $search . '%')
-                  // Search within the related LeadType table
                   ->orWhereHas('leadType', function($typeQuery) use ($search) {
                       $typeQuery->where('name', 'like', '%' . $search . '%');
                   });
             });
         }
 
-        // 3. Status & Source Filter
         if ($request->filled('status')) {
             $query->where('status', $request->status);
         }
@@ -76,7 +76,6 @@ class LeadController extends Controller
             $query->where('source', $request->source);
         }
 
-        // 4. Get Counts for the Stats Cards (Total across all pages)
         $stats = [
             'website' => (clone $query)->where('source', 'website')->count(),
             'call'    => (clone $query)->where('source', 'call')->count(),
@@ -84,25 +83,22 @@ class LeadController extends Controller
             'manual'  => (clone $query)->where('source', 'manual')->count(),
         ];
 
-        // 5. Paginate
         $leads = $query->latest()->paginate(30);
 
-        // Merge stats into the pagination response
         return response()->json(array_merge($leads->toArray(), ['stats' => $stats]));
     }
-    
 
-    /**
-     * GET /leads/{id}
-     * Show single lead
-     */
     public function show($id)
     {
-    $query = Lead::with(['creator', 'leadType', 'gjob.activities' => fn($q) => $q->latest(),
-            'gjob.activities.user'])
-            ->where('id', $id);
+        // 👈 gjob.glaziers yahan bhi add kiya hai
+        $query = Lead::with([
+            'creator', 
+            'leadType', 
+            'gjob.glaziers',
+            'gjob.activities' => fn($q) => $q->latest(),
+            'gjob.activities.user'
+        ])->where('id', $id);
 
-        // Permission Check
         if (auth()->user()->role->level > 2) {
             $query->where('created_by', auth()->id());
         }
@@ -115,18 +111,18 @@ class LeadController extends Controller
     public function getlead_Glazier($id)
     {
         try {
+            // 👈 gjob.glaziers yahan bhi add kiya hai
             $query = Lead::with([
                 'creator', 
                 'leadType', 
+                'gjob.glaziers',
                 'gjob.activities' => fn($q) => $q->latest(),
                 'gjob.activities.user'
             ])->where('id', $id);
 
-            // Permission Check: Use whereHas for relationship columns
             if (auth()->user()->role->level > 3) {
-                $query->whereHas('gjob', function ($q) {
-                    $q->where('glazier_id', auth()->id()); 
-                    // Note: Ensure the column name is 'glazier_id' or whatever you named it in 'jobs' table
+                $query->whereHas('gjob.glaziers', function ($q) {
+                    $q->where('users.id', auth()->id()); 
                 });
             }
 
