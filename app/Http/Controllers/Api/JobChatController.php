@@ -34,12 +34,11 @@ class JobChatController extends Controller
         $formatted = collect();
 
         foreach ($jobs as $job) {
-            // Saare assigned glaziers collect karein (pivot table ya single glazier se)
+            // Job ke saare assigned glaziers fetch karein
             $glaziersList = $job->glaziers->isNotEmpty() ? $job->glaziers : ($job->glazier ? collect([$job->glazier]) : collect());
 
             if ($glaziersList->isEmpty()) {
-                // Agar koi glazier assigned nahi hai toh aik default entry
-                $lastMessage = $job->chats()->whereNull('glazier_id')->latest()->first();
+                $lastMessage = $job->chats()->latest()->first();
                 $formatted->push([
                     'id' => $job->id,
                     'glazier_id' => null,
@@ -53,16 +52,17 @@ class JobChatController extends Controller
                     'last_msg_at' => $lastMessage ? $lastMessage->created_at : $job->created_at,
                 ]);
             } else {
-                // Har glazier ke liye alag conversation row banayein
+                // Har glazier ke liye sidebar mein alag entry banayein taake pata chale kis kis ke sath chat hai
                 foreach ($glaziersList as $glz) {
-                    $lastMessage = $job->chats()->where('glazier_id', $glz->id)->latest()->first();
+                    $lastMessage = $job->chats()->latest()->first();
+                    
                     $formatted->push([
                         'id' => $job->id,
                         'glazier_id' => $glz->id,
                         'display_name' => $glz->name,
                         'lead' => [
                             'id' => $job->lead->id ?? null,
-                            'customer_name' => $job->lead->client_name . " ({$glz->name})", // Name ke sath glazier show ho ga
+                            'customer_name' => ($job->lead->client_name ?? 'Customer') . " [{$glz->name}]",
                             'lead_number' => $job->lead->lead_number ?? 'N/A',
                         ],
                         'last_msg' => $lastMessage ? $lastMessage->message : 'No messages yet. Start chat!',
@@ -82,15 +82,8 @@ class JobChatController extends Controller
 
     public function index(Request $request, GJob $job)
     {
-        $glazierId = $request->query('glazier_id');
-
-        $query = $job->chats()->with('sender')->orderBy('created_at', 'asc');
-        
-        if ($glazierId) {
-            $query->where('glazier_id', $glazierId);
-        }
-
-        $chats = $query->get();
+        // Job ki saari chats fetch hon gi kyun ke table mein glazier_id nahi hai
+        $chats = $job->chats()->with('sender')->orderBy('created_at', 'asc')->get();
 
         return response()->json([
             'success' => true,
@@ -104,13 +97,11 @@ class JobChatController extends Controller
     {
         $request->validate([
             'message' => 'nullable|string|max:2000',
-            'attachment' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:10240',
-            'glazier_id' => 'nullable|exists:users,id'
+            'attachment' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:10240'
         ]);
 
         $user = auth()->user();
         $attachmentPath = null;
-        $glazierId = $request->glazier_id;
 
         if ($request->hasFile('attachment')) {
             $attachmentPath = $request->file('attachment')->store('job-media', 'public');
@@ -126,7 +117,6 @@ class JobChatController extends Controller
             'sender_id' => auth()->id(),
             'message' => $request->message,
             'attachment' => $attachmentPath,
-            'glazier_id' => $glazierId,
         ]);
 
         JobActivity::create([
@@ -136,7 +126,7 @@ class JobChatController extends Controller
         ]);
 
         $roleName = is_object($user->role) ? $user->role->name : $user->role;
-        $receiverId = ($roleName === 'admin') ? ($glazierId ?? $job->glazier_id) : ($job->lead->created_by ?? null);
+        $receiverId = ($roleName === 'admin') ? ($job->glazier_id ?? null) : ($job->lead->created_by ?? null);
 
         if ($receiverId) {
             \App\Models\UserNotification::create([
