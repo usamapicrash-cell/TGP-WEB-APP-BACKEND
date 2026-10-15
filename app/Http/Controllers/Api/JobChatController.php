@@ -36,38 +36,27 @@ class JobChatController extends Controller
         foreach ($jobs as $job) {
             $glaziersList = $job->glaziers->isNotEmpty() ? $job->glaziers : ($job->glazier ? collect([$job->glazier]) : collect());
 
+            // 👈 Agar koi glazier assigned nahi hai, toh is job ko skip (ignore) kar dein
             if ($glaziersList->isEmpty()) {
-                $lastMessage = $job->chats()->whereNull('glazier_id')->latest()->first();
+                continue; 
+            }
+
+            // Sirf assigned glaziers ki entries banengi
+            foreach ($glaziersList as $glz) {
+                $lastMessage = $job->chats()->where('glazier_id', $glz->id)->latest()->first();
+                
                 $formatted->push([
                     'id' => $job->id,
-                    'glazier_id' => null,
-                    'display_name' => 'Unassigned',
+                    'glazier_id' => $glz->id,
+                    'display_name' => $glz->name,
                     'lead' => [
                         'id' => $job->lead->id ?? null,
-                        'customer_name' => $job->lead->client_name ?? 'N/A',
+                        'customer_name' => ($job->lead->client_name ?? 'Customer') . " [{$glz->name}]",
                         'lead_number' => $job->lead->lead_number ?? 'N/A',
                     ],
-                    'last_msg' => $lastMessage ? $lastMessage->message : 'No messages yet. Start chat!',
+                    'last_msg' => $lastMessage ? $lastMessage.message : 'No messages yet. Start chat!',
                     'last_msg_at' => $lastMessage ? $lastMessage->created_at : $job->created_at,
                 ]);
-            } else {
-                // Har glazier ke liye alag conversation row banegi
-                foreach ($glaziersList as $glz) {
-                    $lastMessage = $job->chats()->where('glazier_id', $glz->id)->latest()->first();
-                    
-                    $formatted->push([
-                        'id' => $job->id,
-                        'glazier_id' => $glz->id,
-                        'display_name' => $glz->name,
-                        'lead' => [
-                            'id' => $job->lead->id ?? null,
-                            'customer_name' => ($job->lead->client_name ?? 'Customer') . " [{$glz->name}]",
-                            'lead_number' => $job->lead->lead_number ?? 'N/A',
-                        ],
-                        'last_msg' => $lastMessage ? $lastMessage->message : 'No messages yet. Start chat!',
-                        'last_msg_at' => $lastMessage ? $lastMessage->created_at : $job->created_at,
-                    ]);
-                }
             }
         }
 
