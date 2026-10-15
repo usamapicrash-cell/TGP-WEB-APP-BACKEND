@@ -9,7 +9,9 @@ use App\Models\User;
 use App\Models\LoginHistory;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Password; // <--- Ye add karein
-
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+use Illuminate\Auth\Events\PasswordReset;
 class AuthController extends Controller
 {
     // Login API
@@ -94,5 +96,41 @@ class AuthController extends Controller
             \Log::error('Reset Password Email Error: ' . $e->getMessage());
             return response()->json(['message' => 'Failed to send reset email. ' . $e->getMessage()], 500);
         }
+    }
+
+    public function resetPassword(Request $request)
+    {
+        $request->validate([
+            'token' => 'required',
+            'email' => 'required|email',
+            'password' => 'required|min:8|confirmed', // password_confirmation field check karega
+        ]);
+
+        // Password broker ke zariye password reset karein
+        $status = Password::broker()->reset(
+            $request->only('email', 'password', 'password_confirmation', 'token'),
+            function ($user, $password) {
+                $user->forceFill([
+                    'password' => Hash::make($password)
+                ])->setRememberToken(Str::random(60));
+
+                $user->save();
+
+                event(new PasswordReset($user));
+            }
+        );
+
+        // Status check karein
+        if ($status == Password::PASSWORD_RESET) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Password has been reset successfully.'
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => __($status)
+        ], 400);
     }
 }
