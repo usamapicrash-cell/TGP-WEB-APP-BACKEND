@@ -85,7 +85,7 @@ class LeadController extends Controller
         ];
 
         // 5. Paginate
-        $leads = $query->latest()->paginate(10);
+        $leads = $query->latest()->paginate(30);
 
         // Merge stats into the pagination response
         return response()->json(array_merge($leads->toArray(), ['stats' => $stats]));
