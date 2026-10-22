@@ -81,7 +81,7 @@ class AppointmentController extends Controller
     public function all_site_visit_get(Request $request)
     {
         try {
-            $query = Appointment::with(['glazier', 'lead.gjob.glazier', 'lead.gjob.glaziers', 'lead.payments']);
+            $query = Appointment::with(['lead.gjob.glazier', 'lead.gjob.glaziers', 'lead.payments']);
             
             // Default: Aaj ki date se start hoga
             $query->whereDate('date', '>=', now()->toDateString());
