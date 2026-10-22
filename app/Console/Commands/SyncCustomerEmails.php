@@ -17,36 +17,36 @@ class SyncCustomerEmails extends Command
 
     public function handle()
     {
-        Log::info('--- SyncCustomerEmails command started ---');
+        // Log::info('--- SyncCustomerEmails command started ---');
         set_time_limit(30);
 
         try {
             $client = Client::account('default');
             
-            Log::info('Attempting IMAP connection...');
+            // Log::info('Attempting IMAP connection...');
             @$client->connect();
 
             if (!$client->isConnected()) {
                 Log::warning('IMAP Client failed to connect!');
                 return;
             }
-            Log::info('IMAP Client connected successfully.');
+            // Log::info('IMAP Client connected successfully.');
 
             // 1. INBOX Sync
-            Log::info('Syncing INBOX folder...');
+            // Log::info('Syncing INBOX folder...');
             $this->syncFolder($client, 'INBOX', 'received');
 
             // 2. Sent Mail Sync
-            Log::info('Syncing Sent folder...');
+            // Log::info('Syncing Sent folder...');
             $sentFolder = $client->getFolder('[Gmail]/Sent Mail') ?? $client->getFolder('[Gmail]/Sent');
             if ($sentFolder) {
                 $this->syncFolder($client, $sentFolder, 'sent');
             } else {
-                Log::info('Sent folder not found.');
+                // Log::info('Sent folder not found.');
             }
 
             @$client->disconnect();
-            Log::info('--- SyncCustomerEmails command finished successfully ---');
+            // Log::info('--- SyncCustomerEmails command finished successfully ---');
         } catch (\Exception $e) {
             Log::error("IMAP Fast Sync Exception: " . $e->getMessage());
         }
@@ -69,7 +69,7 @@ class SyncCustomerEmails extends Command
             }
 
             $messages = $query->limit(100)->get();
-            Log::info("Found " . count($messages) . " messages in folder: {$type}");
+            // Log::info("Found " . count($messages) . " messages in folder: {$type}");
 
             foreach ($messages as $message) {
                 $messageId = $message->getMessageId();
@@ -82,7 +82,7 @@ class SyncCustomerEmails extends Command
                     continue;
                 }
 
-                Log::info("Processing new email with Message-ID: {$messageId} ({$type})");
+                // Log::info("Processing new email with Message-ID: {$messageId} ({$type})");
 
                 $fromEmail = isset($message->getFrom()[0]) ? $message->getFrom()[0]->mail : null;
                 $toEmail = isset($message->getTo()[0]) ? $message->getTo()[0]->mail : null;
