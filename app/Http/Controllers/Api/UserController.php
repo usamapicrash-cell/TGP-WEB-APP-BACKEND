@@ -10,6 +10,8 @@ use App\Models\Company;
 use Illuminate\Support\Facades\Hash;
 use App\Notifications\GlazierWelcomeNotification; // <--- Import Karein
 use App\Notifications\ResetPasswordNotification; // Agar aap notification use kar rahe hain
+use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\Mail;
 
 class UserController extends Controller
 {
@@ -177,14 +179,14 @@ class UserController extends Controller
             return response()->json(['message' => 'User not found'], 404);
         }
 
-        // 1. Password reset token generate karein
-        $token = Password::broker()->createToken($user);
-
-        // 2. Frontend ka reset password page URL (jahan token aur email query param mein jayein)
-        $resetUrl = config('app.frontend_url', 'https://your-portal-domain.com') . "/reset-password?token={$token}&email=" . urlencode($user->email);
-
         try {
-            // 3. Aapka custom email template bhejhein
+            // 1. Password reset token generate karein
+            $token = Password::broker()->createToken($user);
+
+            // 2. Frontend ka reset password page URL
+            $resetUrl = config('app.frontend_url', 'https://app.theglasspeople.com') . "/reset-password?token={$token}&email=" . urlencode($user->email);
+
+            // 3. Email template dispatch karein
             Mail::send('emails.glazier_welcome', ['user' => $user, 'resetUrl' => $resetUrl], function ($message) use ($user) {
                 $message->to($user->email);
                 $message->subject('Reset Your Password - The Glass People');
@@ -196,7 +198,7 @@ class UserController extends Controller
 
         } catch (\Exception $e) {
             \Log::error('Password reset email failed: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to send reset email'], 500);
+            return response()->json(['message' => 'Failed to send reset email: ' . $e->getMessage()], 500);
         }
     }
 
