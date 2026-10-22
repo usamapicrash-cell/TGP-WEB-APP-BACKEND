@@ -7,20 +7,18 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\Role;
 use App\Models\Company;
-
+use Illuminate\Support\Facades\Hash;
+use App\Notifications\GlazierWelcomeNotification; // <--- Import Karein
 class UserController extends Controller
 {
 
     public function index(Request $request)
     {
-        // Start query with the role relationship loaded
         $query = User::with('role');
 
-        // If ?role=something is in the URL
         if ($request->filled('role')) {
             $roleName = $request->role;
             
-            // Use whereHas to filter by the name column in the ROLES table
             $query->whereHas('role', function($q) use ($roleName) {
                 $q->where('name', $roleName);
             });
@@ -35,17 +33,17 @@ class UserController extends Controller
         $request->validate([
             'name'=>'required|string',
             'email'=>'required|email|unique:users,email',
+            'phone'=>'nullable|string',
             'password'=>'required|min:6',
             'company_id'=>'required|integer',
         ]);
 
         $executiveRole = Role::where('name','executive')->first();
 
-
-        // Create Executive user
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
+            'phone' => $request->phone,
             'password' => bcrypt($request->password),
             'role_id' => $executiveRole->id,
             'company_id' => $request->company_id,
@@ -60,6 +58,7 @@ class UserController extends Controller
         $request->validate([
             'name'=>'required|string',
             'email'=>'required|email|unique:users,email',
+            'phone'=>'nullable|string',
             'password'=>'required|min:6',
         ]);
 
@@ -68,9 +67,10 @@ class UserController extends Controller
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
+            'phone' => $request->phone,
             'password' => bcrypt($request->password),
             'role_id' => $adminRole->id,
-            'company_id' => auth()->user()->company_id, // same company as executive
+            'company_id' => auth()->user()->company_id,
         ]);
 
         return response()->json($user, 201);
@@ -80,23 +80,38 @@ class UserController extends Controller
     public function createGlazier(Request $request)
     {
         $request->validate([
-            'name'=>'required|string',
-            'email'=>'required|email|unique:users,email',
-            'password'=>'required|min:6',
+            'name' => 'required|string',
+            'email' => 'required|email|unique:users,email',
+            'phone' => 'nullable|string',
+            'password' => 'required|min:6',
         ]);
 
-        $glazierRole = Role::where('name','glazier')->first();
+        $glazierRole = Role::where('name', 'glazier')->first();
+
+        $plainPassword = $request->password; // Email mein bhejney ke liye
 
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
-            'password' => bcrypt($request->password),
+            'phone' => $request->phone,
+            'password' => bcrypt($plainPassword),
             'role_id' => $glazierRole->id,
-            'company_id' => auth()->user()->company_id, // same company as admin
-            'created_by' => auth()->id(), // <--- Ye store karega kisne banaya
+            'company_id' => auth()->user()->company_id,
+            'created_by' => auth()->id(),
         ]);
 
-        return response()->json($user, 201);
+        // Glazier ko Welcome Email + Login Details bhejein
+        try {
+            $user->notify(new GlazierWelcomeNotification($plainPassword));
+        } catch (\Exception $e) {
+            // Email failure handle karne ke liye (Optional logging)
+            \Log::error('Failed to send glazier welcome email: ' . $e->getMessage());
+        }
+
+        return response()->json([
+            'message' => 'Glazier created successfully and login details emailed.',
+            'user' => $user
+        ], 201);
     }
 
     public function update(Request $request, $id)
@@ -107,20 +122,19 @@ class UserController extends Controller
             return response()->json(['message' => 'User not found'], 404);
         }
 
-        // Validation: Email unique check karein lekin current user ID ko ignore karke
         $request->validate([
             'name' => 'required|string',
             'email' => 'required|email|unique:users,email,' . $id,
-            'password' => 'nullable|min:6', // Password optional hai update ke waqt
+            'phone' => 'nullable|string', // <--- Validate phone
+            'password' => 'nullable|min:6',
         ]);
 
-        // Data prepare karein
         $data = [
             'name' => $request->name,
             'email' => $request->email,
+            'phone' => $request->phone, // <--- Update phone
         ];
 
-        // Agar user ne naya password diya hai tabhi update karein
         if ($request->filled('password')) {
             $data['password'] = bcrypt($request->password);
         }
@@ -133,6 +147,25 @@ class UserController extends Controller
         ], 200);
     }
 
+    // <--- NEW: Reset Password Method for Admin Action
+    public function resetPassword($id)
+    {
+        $user = User::find($id);
+
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        // Reset password back to default temporary password 'password123'
+        $user->update([
+            'password' => bcrypt('password123')
+        ]);
+
+        return response()->json([
+            'message' => 'Password reset successfully to temporary password: password123'
+        ], 200);
+    }
+
     public function destroy($id)
     {
         $user = User::find($id);
@@ -141,7 +174,6 @@ class UserController extends Controller
             return response()->json(['message' => 'User not found'], 404);
         }
 
-        // Agar aap chahte hain ke admin apna account khud delete na kar sake:
         if (auth()->id() == $user->id) {
             return response()->json(['message' => 'You cannot delete your own account'], 403);
         }
@@ -153,8 +185,8 @@ class UserController extends Controller
 
     public function updateProfile(Request $request) {
         $user = $request->user();
-        $user->update($request->only('name'));
-        return response()->json(['message' => 'Name updated successfully']);
+        $user->update($request->only('name', 'phone'));
+        return response()->json(['message' => 'Profile updated successfully']);
     }
 
     public function updatePassword(Request $request) {

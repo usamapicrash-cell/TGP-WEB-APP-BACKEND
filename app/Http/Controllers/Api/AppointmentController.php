@@ -69,7 +69,7 @@ class AppointmentController extends Controller
     
     public function index($leadId)
     {
-        $appointments = Appointment::with(['glazier', 'lead.gjob.glazier']) 
+        $appointments = Appointment::with(['glazier', 'lead.gjob.glazier', 'lead.gjob.glaziers'])
             ->where('lead_id', $leadId)
             ->orderBy('date', 'asc')
             ->orderBy('time', 'asc')
@@ -81,7 +81,7 @@ class AppointmentController extends Controller
     public function all_site_visit_get(Request $request)
     {
         try {
-            $query = Appointment::with(['glazier', 'lead.gjob.glazier', 'lead.payments']);
+            $query = Appointment::with(['glazier', 'lead.gjob.glazier', 'lead.gjob.glaziers', 'lead.payments']);
             
             // Default: Aaj ki date se start hoga
             $query->whereDate('date', '>=', now()->toDateString());
@@ -131,7 +131,7 @@ class AppointmentController extends Controller
     
     public function site_visit_get($leadId)
     {
-        $appointments = Appointment::with(['glazier', 'lead.gjob.glazier']) 
+            $appointments = Appointment::with(['glazier', 'lead.gjob.glazier', 'lead.gjob.glaziers'])
             ->where('lead_id', $leadId)
             ->orderBy('date', 'asc')
             ->orderBy('time', 'asc')
