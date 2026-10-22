@@ -219,7 +219,7 @@ class JobController extends Controller
     public function index()
     {
         $user = auth()->user();
-        $query = GJob::with(['lead','glazier'])->where('status', 'job')->latest();
+        $query = GJob::with(['lead','glaziers'])->where('status', 'job')->latest();
 
         if ($user->role->level <= 2) {
             // Super Admin / Executive → all jobs
