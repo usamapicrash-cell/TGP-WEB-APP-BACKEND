@@ -22,7 +22,7 @@ class EmailController extends Controller
             'customer_email' => 'required|email'
         ]);
 
-        SyncEmailsJob::dispatchSync();
+        SyncEmailsJob::dispatch();
 
         // Is customer ki puri history (sent/received) attachments ke sath
         $emails = Email::with('attachments')
@@ -53,7 +53,7 @@ class EmailController extends Controller
         }
 
         // 2. Email sync job dispatch karein
-        SyncEmailsJob::dispatchSync();
+        SyncEmailsJob::dispatch();
 
         // 3. Query: Order No match karein LEKIN customer ki email exclude karein
         $emails = Email::with('attachments')
@@ -158,7 +158,7 @@ class EmailController extends Controller
         \Log::info('Email sent with Message-ID: ' . $sentMessageId);
 
         // 6. Ab sync karein (Pehle se DB mein exact message_id majood hone se job duplicate ignore kar dega)
-        SyncEmailsJob::dispatchSync();
+        SyncEmailsJob::dispatch();
 
         return response()->json(['status' => 'success', 'message' => 'Email sent successfully']);
 
