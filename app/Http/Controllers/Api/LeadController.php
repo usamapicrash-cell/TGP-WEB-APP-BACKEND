@@ -175,7 +175,7 @@ class LeadController extends Controller
             $lead->gjob->activities()->create([
                 'user_id'     => auth()->id(),
                 'action'      => 'Lead Created',
-                'description' => "Initial lead created for {$lead->client_name} with status: " . ($request->status ?? 'lead') . $lead->lead_number,
+                'description' => "Initial lead created for {$lead->client_name} with status: " . ($lead->status ?? 'lead') . $lead->lead_number,
             ]);
         }
 
