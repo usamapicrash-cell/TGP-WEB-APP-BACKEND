@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Welcome to The Glass People</title>
+    <title>{{ isset($resetUrl) ? 'Reset Password' : 'Welcome to The Glass People' }}</title>
 </head>
 <body style="font-family: Arial, sans-serif; background-color: #f8f9fa; margin: 0; padding: 20px;">
     <div style="max-width: 600px; background: #ffffff; margin: 0 auto; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
@@ -15,28 +15,49 @@
 
         <!-- Body Content -->
         <div style="padding: 30px; color: #333333;">
-            <h3 style="margin-top: 0; color: #34497e;">Welcome, {{ $user->name ?? 'Glazier' }}!</h3>
-            <p style="font-size: 14px; line-height: 1.6; color: #555;">
-                Your account has been successfully created. You can now access your Glazier portal using the login credentials below:
-            </p>
+            
+            @isset($resetUrl)
+                <!-- ================= PASSWORD RESET VIEW ================= -->
+                <h3 style="margin-top: 0; color: #34497e;">Hello {{ $user->name ?? 'User' }},</h3>
+                <p style="font-size: 14px; line-height: 1.6; color: #555;">
+                    You are receiving this email because we received a password reset request for your account. Click the button below to reset your password:
+                </p>
 
-            <!-- Credentials Box -->
-            <div style="background-color: #f1f3f9; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #34497e;">
-                <p style="margin: 0 0 10px 0; font-size: 14px;"><strong>Portal Link:</strong> <a href="{{ $loginUrl }}" style="color: #34497e; word-break: break-all;">{{ $loginUrl }}</a></p>
-                <p style="margin: 0 0 10px 0; font-size: 14px;"><strong>Email Address:</strong> {{ $user->email }}</p>
-                <p style="margin: 0; font-size: 14px;"><strong>Password:</strong> <code style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-weight: bold; color: #2d3748;">{{ $password }}</code></p>
-            </div>
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="{{ $resetUrl }}" style="background-color: #34497e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; display: inline-block;">
+                        Reset Password
+                    </a>
+                </div>
 
-            <!-- Login Button -->
-            <div style="text-align: center; margin: 30px 0;">
-                <a href="{{ $loginUrl }}" style="background-color: #34497e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; display: inline-block;">
-                    Login to Portal
-                </a>
-            </div>
+                <p style="font-size: 13px; color: #777; line-height: 1.5;">
+                    This password reset link will expire in 60 minutes. If you did not request a password reset, no further action is required.
+                </p>
 
-            <p style="font-size: 13px; color: #777; line-height: 1.5;">
-                For security reasons, we strongly recommend changing your password after logging in for the first time.
-            </p>
+            @else
+                <!-- ================= WELCOME / CREATE VIEW ================= -->
+                <h3 style="margin-top: 0; color: #34497e;">Welcome, {{ $user->name ?? 'Glazier' }}!</h3>
+                <p style="font-size: 14px; line-height: 1.6; color: #555;">
+                    Your account has been successfully created. You can now access your Glazier portal using the login credentials below:
+                </p>
+
+                <!-- Credentials Box -->
+                <div style="background-color: #f1f3f9; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #34497e;">
+                    <p style="margin: 0 0 10px 0; font-size: 14px;"><strong>Portal Link:</strong> <a href="{{ $loginUrl }}" style="color: #34497e; word-break: break-all;">{{ $loginUrl }}</a></p>
+                    <p style="margin: 0 0 10px 0; font-size: 14px;"><strong>Email Address:</strong> {{ $user->email }}</p>
+                    <p style="margin: 0; font-size: 14px;"><strong>Password:</strong> <code style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-weight: bold; color: #2d3748;">{{ $password ?? '********' }}</code></p>
+                </div>
+
+                <!-- Login Button -->
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="{{ $loginUrl }}" style="background-color: #34497e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; display: inline-block;">
+                        Login to Portal
+                    </a>
+                </div>
+
+                <p style="font-size: 13px; color: #777; line-height: 1.5;">
+                    For security reasons, we strongly recommend changing your password after logging in for the first time.
+                </p>
+            @endisset
 
             <p style="font-size: 13px; color: #777; margin-top: 30px;">
                 Best Regards, <br>
