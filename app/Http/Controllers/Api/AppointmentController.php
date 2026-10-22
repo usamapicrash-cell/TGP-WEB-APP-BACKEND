@@ -69,7 +69,7 @@ class AppointmentController extends Controller
     
     public function index($leadId)
     {
-        $appointments = Appointment::with(['glazier', 'lead.gjob.glazier', 'lead.gjob.glaziers'])
+        $appointments = Appointment::with(['lead.gjob.glazier', 'lead.gjob.glaziers'])
             ->where('lead_id', $leadId)
             ->orderBy('date', 'asc')
             ->orderBy('time', 'asc')
@@ -131,7 +131,7 @@ class AppointmentController extends Controller
     
     public function site_visit_get($leadId)
     {
-            $appointments = Appointment::with(['glazier', 'lead.gjob.glazier', 'lead.gjob.glaziers'])
+            $appointments = Appointment::with(['lead.gjob.glazier', 'lead.gjob.glaziers'])
             ->where('lead_id', $leadId)
             ->orderBy('date', 'asc')
             ->orderBy('time', 'asc')
@@ -217,7 +217,7 @@ class AppointmentController extends Controller
 
         return response()->json([
             'message'       => 'Site visit logged successfully, SMS and Email sent to client.',
-            'data'          => $appointment->load('lead.gjob', 'glazier'),
+            'data'          => $appointment->load('lead.gjob'),
             'approval_link' => $approvalLink
         ], 201);
     }
@@ -297,7 +297,7 @@ class AppointmentController extends Controller
         }
 
         try {
-            $appointment = Appointment::with('lead.gjob.activities', 'glazier')->find($id);
+            $appointment = Appointment::with('lead.gjob.activities')->find($id);
 
             if (!$appointment) {
                 return response()->json(['message' => 'Appointment not found.'], 404);
@@ -342,7 +342,7 @@ class AppointmentController extends Controller
             ]);
 
             // Fresh data reload with new glazier relation
-            $appointment->load('glazier');
+            $appointment->load();
 
             $isDateTimeChanged = ($oldDate !== $request->date) || ($oldTime !== $request->time);
             $isStatusChanged   = ($oldStatus !== $request->status);
@@ -394,7 +394,7 @@ class AppointmentController extends Controller
 
             return response()->json([
                 'message' => 'Site visit updated successfully!',
-                'data'    => $appointment->load('lead.gjob', 'glazier')
+                'data'    => $appointment->load('lead.gjob')
             ], 200);
 
         } catch (\Exception $e) {
@@ -531,7 +531,7 @@ class AppointmentController extends Controller
     private function sendScheduleEmail(Appointment $appointment, string $typeLabel, string $approvalLink)
     {
         try {
-            $appointment->loadMissing(['lead.gjob', 'glazier']); // 👈 appointment ka glazier load karein
+            $appointment->loadMissing(['lead.gjob']); // 👈 appointment ka glazier load karein
             $lead = $appointment->lead;
 
             if (!$lead) {
