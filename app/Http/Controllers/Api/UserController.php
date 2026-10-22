@@ -183,11 +183,16 @@ class UserController extends Controller
             // 1. Password reset token generate karein
             $token = Password::broker()->createToken($user);
 
-            // 2. Frontend ka reset password page URL
-            $resetUrl = config('app.frontend_url', 'https://app.theglasspeople.com') . "/reset-password?token={$token}&email=" . urlencode($user->email);
+            // 2. URLs define karein
+            $resetUrl = config('app.frontend_url', 'https://your-portal-domain.com') . "/reset-password?token={$token}&email=" . urlencode($user->email);
+            $loginUrl = config('app.frontend_url', 'https://your-portal-domain.com') . "/login";
 
-            // 3. Email template dispatch karein
-            Mail::send('emails.glazier_welcome', ['user' => $user, 'resetUrl' => $resetUrl], function ($message) use ($user) {
+            // 3. Email template dispatch karein (dono variables pass karein)
+            Mail::send('emails.glazier_welcome', [
+                'user' => $user, 
+                'resetUrl' => $resetUrl,
+                'loginUrl' => $loginUrl
+            ], function ($message) use ($user) {
                 $message->to($user->email);
                 $message->subject('Reset Your Password - The Glass People');
             });
