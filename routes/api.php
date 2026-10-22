@@ -50,7 +50,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllRead']);
     
     Route::post('/logout', [AuthController::class, 'logout']);
-    
+    Route::post('/users/{id}/reset-password', [UserController::class, 'resetPass']);
     Route::get('/user', function(Request $request) {
         return $request->user();
     });

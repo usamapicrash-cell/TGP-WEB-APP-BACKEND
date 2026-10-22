@@ -9,6 +9,8 @@ use App\Models\Role;
 use App\Models\Company;
 use Illuminate\Support\Facades\Hash;
 use App\Notifications\GlazierWelcomeNotification; // <--- Import Karein
+use App\Notifications\ResetPasswordNotification; // Agar aap notification use kar rahe hain
+
 class UserController extends Controller
 {
 
@@ -164,6 +166,38 @@ class UserController extends Controller
         return response()->json([
             'message' => 'Password reset successfully to temporary password: password123'
         ], 200);
+    }
+
+    
+    public function resetPass($id)
+    {
+        $user = User::find($id);
+
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        // 1. Password reset token generate karein
+        $token = Password::broker()->createToken($user);
+
+        // 2. Frontend ka reset password page URL (jahan token aur email query param mein jayein)
+        $resetUrl = config('app.frontend_url', 'https://your-portal-domain.com') . "/reset-password?token={$token}&email=" . urlencode($user->email);
+
+        try {
+            // 3. Aapka custom email template bhejhein
+            Mail::send('emails.glazier_welcome', ['user' => $user, 'resetUrl' => $resetUrl], function ($message) use ($user) {
+                $message->to($user->email);
+                $message->subject('Reset Your Password - The Glass People');
+            });
+
+            return response()->json([
+                'message' => "Password reset instructions sent to {$user->name}"
+            ], 200);
+
+        } catch (\Exception $e) {
+            \Log::error('Password reset email failed: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to send reset email'], 500);
+        }
     }
 
     public function destroy($id)
