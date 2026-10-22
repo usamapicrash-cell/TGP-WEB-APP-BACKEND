@@ -68,7 +68,7 @@ class SyncCustomerEmails extends Command
                 $query->unseen();
             }
 
-            $messages = $query->limit(200)->get();
+            $messages = $query->limit(100)->get();
             Log::info("Found " . count($messages) . " messages in folder: {$type}");
 
             foreach ($messages as $message) {
