@@ -8,39 +8,47 @@ use App\Models\Email;
 use App\Models\EmailAttachment;
 use Illuminate\Support\Facades\Storage;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class SyncCustomerEmails extends Command
 {
     protected $signature = 'sync:emails';
-    protected $description = 'Sync inbox and sent emails efficiently and fast';
+    protected $description = 'Sync inbox and sent emails efficiently and fast with detailed logs';
 
     public function handle()
     {
-        // Script ko timeout se bachane ke liye limit set ki hai
+        Log::info('--- SyncCustomerEmails command started ---');
         set_time_limit(30);
 
         try {
             $client = Client::account('default');
             
-            // Fast connection attempt with suppress warnings
+            Log::info('Attempting IMAP connection...');
             @$client->connect();
 
             if (!$client->isConnected()) {
+                Log::warning('IMAP Client failed to connect!');
                 return;
             }
+            Log::info('IMAP Client connected successfully.');
 
-            // 1. INBOX Sync (Only Unseen & last 6 hours for speed)
+            // 1. INBOX Sync
+            Log::info('Syncing INBOX folder...');
             $this->syncFolder($client, 'INBOX', 'received');
 
             // 2. Sent Mail Sync
+            Log::info('Syncing Sent folder...');
             $sentFolder = $client->getFolder('[Gmail]/Sent Mail') ?? $client->getFolder('[Gmail]/Sent');
             if ($sentFolder) {
                 $this->syncFolder($client, $sentFolder, 'sent');
+            } else {
+                Log::info('Sent folder not found.');
             }
 
             @$client->disconnect();
+            Log::info('--- SyncCustomerEmails command finished successfully ---');
         } catch (\Exception $e) {
-            \Log::error("IMAP Fast Sync Error: " . $e->getMessage());
+            Log::error("IMAP Fast Sync Exception: " . $e->getMessage());
         }
     }
 
@@ -48,30 +56,33 @@ class SyncCustomerEmails extends Command
     {
         $folder = is_string($folderName) ? $client->getFolder($folderName) : $folderName;
         
-        if (!$folder) return;
+        if (!$folder) {
+            Log::warning("Folder not found: " . (is_string($folderName) ? $folderName : 'Object'));
+            return;
+        }
 
         try {
-            // Time window ko 12 hours se reduce karke 6 hours kar diya hai taake query choti ho
             $query = $folder->messages()->since(now()->subHours(6));
             
             if ($type === 'received') {
                 $query->unseen();
             }
 
-            // Limit ko 5 kar diya hai taake background job ekdum foran execute hojaye
             $messages = $query->limit(5)->get();
+            Log::info("Found " . count($messages) . " messages in folder: {$type}");
 
             foreach ($messages as $message) {
                 $messageId = $message->getMessageId();
                 if (!$messageId) continue;
 
-                // Check if email already processed (Database check is super fast)
                 if (Email::where('message_id', $messageId)->exists()) {
                     if ($type === 'received') {
-                        @$message->setFlag('Seen'); // Agar pehle se hai toh seen karke skip karo
+                        @$message->setFlag('Seen');
                     }
                     continue;
                 }
+
+                Log::info("Processing new email with Message-ID: {$messageId} ({$type})");
 
                 $fromEmail = isset($message->getFrom()[0]) ? $message->getFrom()[0]->mail : null;
                 $toEmail = isset($message->getTo()[0]) ? $message->getTo()[0]->mail : null;
@@ -87,10 +98,10 @@ class SyncCustomerEmails extends Command
                     'created_at' => isset($message->getDate()[0]) ? Carbon::parse($message->getDate()[0]) : now(),
                 ]);
 
-                // Save Attachments (Skip heavy files instantly)
+                // Save Attachments
                 if ($message->hasAttachments()) {
                     foreach ($message->getAttachments() as $attachment) {
-                        if ($attachment->getSize() > 5242880) continue; // Limit reduced to 5MB for speed
+                        if ($attachment->getSize() > 5242880) continue; 
 
                         $filename = $attachment->getName();
                         if (!$filename) continue;
@@ -114,7 +125,7 @@ class SyncCustomerEmails extends Command
                 }
             }
         } catch (\Exception $e) {
-            \Log::error("Folder Sync Error ({$type}): " . $e->getMessage());
+            Log::error("Folder Sync Error ({$type}): " . $e->getMessage());
         }
     }
 }
