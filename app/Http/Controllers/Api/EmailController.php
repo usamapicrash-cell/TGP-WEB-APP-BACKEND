@@ -158,7 +158,7 @@ class EmailController extends Controller
         \Log::info('Email sent with Message-ID: ' . $sentMessageId);
 
         // 6. Ab sync karein (Pehle se DB mein exact message_id majood hone se job duplicate ignore kar dega)
-        SyncEmailsJob::dispatch();
+        // SyncEmailsJob::dispatch();
 
         return response()->json(['status' => 'success', 'message' => 'Email sent successfully']);
 
