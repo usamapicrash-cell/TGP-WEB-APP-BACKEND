@@ -254,18 +254,27 @@ class JobController extends Controller
     {
         $user = auth()->user();
 
-        // Check if lead relationship exists before accessing created_by
-        if ($user->role->level > 2) {
+        // Check if user is restricted (Role level > 2)
+        if ($user->role && $user->role->level > 2) {
             $isCreator = $job->lead && $job->lead->created_by == $user->id;
-            $isAssigned = $job->glazier_id == $user->id;
+            
+            // Dono checks lagayein: Direct glazier_id OR Pivot table relationship (glaziers)
+            $isAssigned = $job->glazier_id == $user->id || 
+                          ($job->relationLoaded('glaziers') ? $job->glaziers->contains('id', $user->id) : $job->glaziers()->where('users.id', $user->id)->exists());
             
             if (!$isCreator && !$isAssigned) {
                 abort(403, 'Unauthorized');
             }
         }
 
-        // Relationships ke naam check karein (media, payments, etc.)
-        return $job->load(['lead.creator', 'lead.gjob', 'glaziers', 'glazier', 'activities' => fn($q) => $q->latest()]);
+        // Sabhi zaroori relationships load kar ke return karein
+        return $job->load([
+            'lead.creator', 
+            'lead.gjob', 
+            'glaziers', 
+            'glazier', 
+            'activities' => fn($q) => $q->latest()
+        ]);
     }
 
     // Convert Lead → Job
