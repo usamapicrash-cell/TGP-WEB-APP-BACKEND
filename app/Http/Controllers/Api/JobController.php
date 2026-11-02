@@ -259,8 +259,7 @@ class JobController extends Controller
             $isCreator = $job->lead && $job->lead->created_by == $user->id;
             
             // Dono checks lagayein: Direct glazier_id OR Pivot table relationship (glaziers)
-            $isAssigned = $job->glazier_id == $user->id || 
-                          ($job->relationLoaded('glaziers') ? $job->glaziers->contains('id', $user->id) : $job->glaziers()->where('users.id', $user->id)->exists());
+            $isAssigned = $job->relationLoaded('glaziers') ? $job->glaziers->contains('id', $user->id) : $job->glaziers()->where('users.id', $user->id)->exists();
             
             if (!$isCreator && !$isAssigned) {
                 abort(403, 'Unauthorized');
