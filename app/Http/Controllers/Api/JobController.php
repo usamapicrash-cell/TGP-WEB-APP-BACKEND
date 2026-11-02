@@ -175,20 +175,25 @@ class JobController extends Controller
     {
         $glazierId = auth()->id(); 
         
-        $jobs = GJob::where('glazier_id', $glazierId)
-                    ->where('work_status', '!=', 'completed')
-                    // ->where('status', 'job')
-                    ->with(['lead', 'attendances' => function($query) use ($glazierId) {
-                        $query->where('user_id', $glazierId)->latest();
-                    }])
-                    ->latest()->get();
+        // Jobs nikalien jo ya toh glazier_id se match karein ya glaziers pivot table relation se
+        $jobs = GJob::where(function($q) use ($glazierId) {
+                $q->WhereHas('glaziers', function($subQ) use ($glazierId) {
+                      $subQ->where('users.id', $glazierId);
+                  });
+            })
+            ->where('work_status', '!=', 'completed')
+            ->with(['lead', 'glaziers', 'attendances' => function($query) use ($glazierId) {
+                $query->where('user_id', $glazierId)->latest();
+            }])
+            ->latest()
+            ->get();
 
         // Check karein ke kya koi job currently active hai (CLOCK_IN baghair CLOCK_OUT ke)
         foreach ($jobs as $job) {
             $latestAttendance = $job->attendances->first();
             if ($latestAttendance && $latestAttendance->action === 'CLOCK_IN') {
                 $job->work_status = 'in_progress';
-                // Hum actual clock-in time bhej rahe hain taake timer sahi chale
+                // Actual clock-in time set kar rahe hain taake frontend par timer sahi chale
                 $job->clock_in_time = $latestAttendance->recorded_at; 
             }
         }
@@ -203,12 +208,17 @@ class JobController extends Controller
     {
         $glazierId = auth()->id(); 
         
-        $jobs = GJob::where('glazier_id', $glazierId)
-                    // ->where('status', 'job')
-                    ->with(['lead', 'attendances' => function($query) use ($glazierId) {
-                        $query->where('user_id', $glazierId)->latest();
-                    }])
-                    ->latest()->get();
+        // Sabhi assigned jobs nikalien (completed samait) relation check ke sath
+        $jobs = GJob::where(function($q) use ($glazierId) {
+                $q->WhereHas('glaziers', function($subQ) use ($glazierId) {
+                      $subQ->where('users.id', $glazierId);
+                  });
+            })
+            ->with(['lead', 'glaziers', 'attendances' => function($query) use ($glazierId) {
+                $query->where('user_id', $glazierId)->latest();
+            }])
+            ->latest()
+            ->get();
 
         return response()->json([
             'status' => 'success',
