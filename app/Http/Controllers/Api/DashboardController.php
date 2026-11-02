@@ -61,7 +61,7 @@ class DashboardController extends Controller
             $poQuery = PurchaseOrder::query()->whereBetween('created_at', [$startDate, $endDate]);
             
             // Appointment Query
-            $appointmentQuery = Appointment::with(['lead.gjob.glazier']);
+            $appointmentQuery = Appointment::with(['lead.gjob.glaziers', 'lead.gjob.glazier']);
 
             // Permission Logic: Level > 2 (Non-Admin/Executive)
             if ($userLevel > 2) {
