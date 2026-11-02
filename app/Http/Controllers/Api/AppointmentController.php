@@ -35,13 +35,15 @@ class AppointmentController extends Controller
         try {
             $user = auth()->user();
             
-            // Base query with exact relationships
-            $query = Appointment::with(['lead.gjob']);
+            // Base query with exact relationships (glaziers pivot relation bhi load kar li hai)
+            $query = Appointment::with(['lead.gjob.glaziers', 'lead.gjob.glazier']);
 
-            // Agar user glazier hai (Role Level > 2), toh sirf uske jobs dikhayein
+            // Agar user glazier hai (Role Level > 2), toh sirf uske assigned appointments dikhayein
             if ($user && $user->role && $user->role->level > 2) {
                 $query->whereHas('lead.gjob', function($q) use ($user) {
-                    $q->where('glazier_id', $user->id);
+                    $q->WhereHas('glaziers', function($subQ) use ($user) {
+                          $subQ->where('users.id', $user->id);
+                      });
                 });
             }
 
