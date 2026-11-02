@@ -9,6 +9,7 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\Invoice;
 use App\Models\Appointment;
+use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -16,20 +17,50 @@ use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         try {
             $user = auth()->user();
             $userId = $user->id;
             $userLevel = $user->role->level;
 
-            // --- 1. Base Queries with Permissions ---
-            $leadQuery = Lead::query();
-            $jobQuery = GJob::query();
-            $invoiceQuery = Invoice::query();
-            $poQuery = PurchaseOrder::query();
+            // --- 0. Date Range Handling ---
+            $range = $request->input('range', 'this_month');
+            $startDate = null;
+            $endDate = null;
+
+            switch ($range) {
+                case 'today':
+                    $startDate = Carbon::today()->startOfDay();
+                    $endDate = Carbon::today()->endOfDay();
+                    break;
+                case 'this_week':
+                    $startDate = Carbon::now()->startOfWeek();
+                    $endDate = Carbon::now()->endOfWeek();
+                    break;
+                case 'custom':
+                    if ($request->filled('start_date') && $request->filled('end_date')) {
+                        $startDate = Carbon::parse($request->input('start_date'))->startOfDay();
+                        $endDate = Carbon::parse($request->input('end_date'))->endOfDay();
+                    } else {
+                        $startDate = Carbon::now()->startOfMonth();
+                        $endDate = Carbon::now()->endOfMonth();
+                    }
+                    break;
+                case 'this_month':
+                default:
+                    $startDate = Carbon::now()->startOfMonth();
+                    $endDate = Carbon::now()->endOfMonth();
+                    break;
+            }
+
+            // --- 1. Base Queries with Permissions & Date Filtering ---
+            $leadQuery = Lead::query()->whereBetween('created_at', [$startDate, $endDate]);
+            $jobQuery = GJob::query()->whereBetween('created_at', [$startDate, $endDate]);
+            $invoiceQuery = Invoice::query()->whereBetween('created_at', [$startDate, $endDate]);
+            $poQuery = PurchaseOrder::query()->whereBetween('created_at', [$startDate, $endDate]);
             
-            // Appointment Query: Hum 'lead.gjob.glazier' load karenge kyunki GJob lead se connected hai
+            // Appointment Query
             $appointmentQuery = Appointment::with(['lead.gjob.glazier']);
 
             // Permission Logic: Level > 2 (Non-Admin/Executive)
@@ -50,12 +81,10 @@ class DashboardController extends Controller
 
                 // Appointment Filter
                 if ($userLevel > 3) {
-                    // Sirf wahi appointments jahan ye user as a glazier assigned hai
                     $appointmentQuery->whereHas('lead.gjob', function($q) use ($userId) {
                         $q->where('glazier_id', $userId);
                     });
                 } else {
-                    // Ya phir wo appointments jinki lead is user ne banayi
                     $appointmentQuery->whereHas('lead', function($q) use ($userId) {
                         $q->where('created_by', $userId);
                     });
@@ -98,9 +127,9 @@ class DashboardController extends Controller
                 ->select('source as name', DB::raw('count(*) as value'))
                 ->groupBy('source')->get()
                 ->map(fn($item) => [
-                    'name' => ucfirst(strtolower($item->name)),
+                    'name' => ucfirst(strtolower($item->name ?? 'Direct')),
                     'value' => (int)$item->value,
-                    'color' => $sourceColors[strtolower($item->name)] ?? '#d1d1d1'
+                    'color' => $sourceColors[strtolower($item->name ?? '')] ?? '#d1d1d1'
                 ]);
 
             // --- 5. Work Order Stages ---
@@ -125,7 +154,7 @@ class DashboardController extends Controller
                 }
             });
 
-            // --- 6. Appointments & Glazier Data Fix ---
+            // --- 6. Appointments Data ---
             $today = Carbon::today()->toDateString();
             $nextWeek = Carbon::today()->addDays(7)->toDateString();
 
@@ -157,8 +186,8 @@ class DashboardController extends Controller
                 'data' => [
                     'appointments' => $appointments,
                     'stats' => $stats,
-                     'topProducts' => PurchaseOrderItem::select('item_name as name', DB::raw('count(*) as sales'))
-                                    ->groupBy('name')->orderBy('sales', 'desc')->take(5)->get(),
+                    'topProducts' => PurchaseOrderItem::select('item_name as name', DB::raw('count(*) as sales'))
+                                        ->groupBy('name')->orderBy('sales', 'desc')->take(5)->get(),
                     'chartData' => $chartData,
                     'regionData' => $regionData,
                     'woStages' => collect($counts)->map(fn($val, $key) => ['stage' => $key, 'count' => $val])->values(),
