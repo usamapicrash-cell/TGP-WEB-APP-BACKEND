@@ -335,9 +335,9 @@ class SmsCommunicationController extends Controller
         $data = $request->all();
         \Log::info('Vonage Event Webhook', $data);
 
-        $status            = $data['status'] ?? null;
-        $conversationUuid  = $data['conversation_uuid'] ?? null;
-        $direction         = $data['direction'] ?? null;
+        $status           = $data['status'] ?? null;
+        $conversationUuid = $data['conversation_uuid'] ?? null;
+        $direction        = $data['direction'] ?? null;
 
         if (!$conversationUuid || !$status) {
             return response()->json([], 200);
@@ -350,25 +350,29 @@ class SmsCommunicationController extends Controller
         ];
         $liveStates = ['ringing', 'started', 'answered', 'connected', 'active'];
 
-        // 🔥 Naya: matching CallLog row update karo (status, timestamps, duration)
+        // Matching CallLog row update (status, timestamps, duration)
         $log = \App\Models\CallLog::where('conversation_uuid', $conversationUuid)->first();
         if ($log) {
             $log->status = $status;
+            
             if ($status === 'answered' && !$log->answered_at) {
                 $log->answered_at = now();
             }
+
             if (in_array($status, $endStates)) {
                 $log->ended_at = now();
-                if ($log->answered_at) {
-                    $log->duration = now()->diffInSeconds($log->answered_at);
+
+                // FIX: Calculate positive duration (ended_at - answered_at or started_at)
+                $startTime = $log->answered_at ?? $log->started_at;
+                if ($startTime) {
+                    $log->duration = (int) abs($startTime->diffInSeconds($log->ended_at));
                 }
             }
+
             $log->save();
         }
 
         if (in_array($status, $endStates) || in_array($status, $liveStates)) {
-            // 🔥 Naya: name bhi broadcast payload me bhejo taake incoming widget
-            // pe number ki jagah naam dikhe
             event(new \App\Events\VonageCallEvent(
                 $conversationUuid,
                 $status,
