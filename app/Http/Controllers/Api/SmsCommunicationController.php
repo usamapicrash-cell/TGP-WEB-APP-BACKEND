@@ -285,46 +285,67 @@ class SmsCommunicationController extends Controller
     public function voiceAnswerWebhook(Request $request) {
         \Log::info('Vonage Answer Webhook Hit', $request->all());
 
-        $toNumber = $request->input('custom_data.number') 
-                    ?? $request->input('to') 
-                    ?? null;
+        $fromNumber = $request->input('from'); // Customer ka number (e.g. 15419085782)
+        $toNumber   = $request->input('to');   // Vonage virtual number (13159071112)
+        
+        $customDataRaw = $request->input('custom_data');
+        $customData    = is_string($customDataRaw) ? json_decode($customDataRaw, true) : $customDataRaw;
+        $agentUserId   = $customData['user_id'] ?? null;
+        $conversationUuid = $request->input('conversation_uuid');
 
-        $agentUserId = $request->input('custom_data.user_id'); // 🔥 naya
+        // -------------------------------------------------------------
+        // CASE 1: OUTBOUND CALL (React App -> External Phone Number)
+        // -------------------------------------------------------------
+        if (!empty($customData['number'])) {
+            $destinationNumber = $customData['number'];
 
+            \App\Models\CallLog::create([
+                'conversation_uuid' => $conversationUuid,
+                'phone_number'      => $destinationNumber,
+                'client_name'        => \App\Http\Controllers\Api\CallLogController::resolveClientName($destinationNumber),
+                'direction'          => 'outbound',
+                'status'             => 'started',
+                'started_at'         => now(),
+                'user_id'            => $agentUserId,
+            ]);
 
-        if (!$toNumber) {
-            \Log::error('Answer webhook: to number nahi mila', $request->all());
+            $callerId = config('services.vonage.voice_from') ?? '13159071112';
+
             return response()->json([
-                ["action" => "talk", "text" => "Sorry, number nahi mila."]
+                [
+                    "action"   => "connect",
+                    "from"     => $callerId,
+                    "endpoint" => [
+                        [
+                            "type"   => "phone",
+                            "number" => $destinationNumber
+                        ]
+                    ]
+                ]
             ]);
         }
 
-        // 🔥 Call log row create karo (outbound leg — see comment in CallingContext.jsx
-        // about why only 'outbound' direction is the real customer call)
-        $conversationUuid = $request->input('conversation_uuid');
+        // -------------------------------------------------------------
+        // CASE 2: INBOUND CALL (Customer Phone -> React App Portal)
+        // -------------------------------------------------------------
         \App\Models\CallLog::create([
             'conversation_uuid' => $conversationUuid,
-            'phone_number' => $toNumber,
-            'client_name' => \App\Http\Controllers\Api\CallLogController::resolveClientName($toNumber),
-            'direction' => 'outbound',
-            'status' => 'started',
-            'started_at' => now(),
-            'user_id' => $agentUserId, // 🔥 auth()->id() ki jagah
-
+            'phone_number'      => $fromNumber,
+            'client_name'        => \App\Http\Controllers\Api\CallLogController::resolveClientName($fromNumber),
+            'direction'          => 'inbound',
+            'status'             => 'started',
+            'started_at'         => now(),
         ]);
 
-        $fromNumber = config('services.vonage.voice_from') 
-                      ?? config('services.vonage.sms_from') 
-                      ?? '13159071112';
-
+        // MUST USE type: app TO ROUTE CALL TO REACT WEB SDK USER
         return response()->json([
             [
-                "action" => "connect",
-                "from" => $fromNumber, 
+                "action"   => "connect",
+                "from"     => $fromNumber,
                 "endpoint" => [
                     [
-                        "type" => "phone",
-                        "number" => $toNumber
+                        "type" => "app",
+                        "user" => "tgp_portal_user" // Apka WebSDK client user identity
                     ]
                 ]
             ]
