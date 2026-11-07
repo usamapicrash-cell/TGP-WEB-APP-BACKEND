@@ -36,6 +36,8 @@ Route::put('/appointments/{id}/status', [AppointmentController::class, 'updateSt
         
 Route::get('/quickbooks/connect', [QuickBooksController::class, 'connect']);
 Route::get('/quickbooks/callback', [QuickBooksController::class, 'callback']);
+Route::get('/quickbooks/status', [QuickBooksController::class, 'getStatus']);
+Route::post('/quickbooks/disconnect', [QuickBooksController::class, 'disconnect']);
 Route::get('/quickbooks/inventory', [QuickBooksController::class, 'getInventory']);
 Route::post('/quickbooks/create-item', [QuickBooksController::class, 'createItem']);
 
