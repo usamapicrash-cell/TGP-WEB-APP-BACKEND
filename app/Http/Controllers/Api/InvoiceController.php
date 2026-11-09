@@ -33,6 +33,7 @@ class InvoiceController extends Controller
      */
     public function recordManualPayment(Request $request, \App\Services\QuickBooksService $qbService)
     {
+        Log::info('InvoiceController: recordManualPayment hit!', $request->all());
         $request->validate([
             'invoice_id'     => 'required|exists:invoices,id',
             'amount'         => 'required|numeric|min:0.01',
