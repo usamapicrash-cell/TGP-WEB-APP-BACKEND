@@ -242,16 +242,16 @@ class QuickBooksService
 
         $escapedItemName = str_replace("'", "\'", $cleanName);
 
-        // 1. Pehle exact match check karein (jo Category na ho)
-        $existing = $dataService->Query("SELECT * FROM Item WHERE Name = '{$escapedItemName}' AND Type != 'Category'");
+        // 1. Pehle exact match check karein
+        $existing = $dataService->Query("SELECT * FROM Item WHERE Name = '{$escapedItemName}'");
 
         if ($existing && count($existing) > 0) {
-            Log::info('QuickBooks: Valid Item already exists with ID: ' . $existing[0]->Id);
+            Log::info('QuickBooks: Item already exists with ID: ' . $existing[0]->Id);
             return $existing[0]->Id;
         }
 
-        // 2. Agar exact match nahi mila, toh QBO ke saare items fetch kar ke check karein (case-insensitive match ke liye)
-        $allItems = $dataService->Query("SELECT * FROM Item WHERE Type != 'Category' MAXRESULTS 1000");
+        // 2. Case-insensitive match check karein QBO se saare items fetch kar ke
+        $allItems = $dataService->Query("SELECT * FROM Item MAXRESULTS 1000");
         if ($allItems) {
             foreach ($allItems as $qbItem) {
                 if (strcasecmp(trim($qbItem->Name), $cleanName) === 0) {
@@ -261,8 +261,8 @@ class QuickBooksService
             }
         }
 
-        // 3. Agar waqai QBO mein mojood nahi hai, tabhi naya Service item banayein
-        Log::info('QuickBooks: Valid Item not found in QBO. Creating new Service item: ' . $cleanName);
+        // 3. Agar QBO mein waqai mojood nahi hai, tabhi naya Service item banayein
+        Log::info('QuickBooks: Item not found in QBO. Creating new Service item: ' . $cleanName);
         $itemObj = QBOItem::create([
             'Name'             => $cleanName,
             'Type'             => 'Service',
@@ -273,8 +273,17 @@ class QuickBooksService
         $created = $dataService->Add($itemObj);
         $error = $dataService->getLastError();
 
-        if ($error || !$created) {
-            $errBody = $error ? $error->getResponseBody() : 'Null response';
+        // 4. Agar error aisi aaye ke item already exist karta hai, toh dobara query kar ke ID utha lo
+        if ($error) {
+            $errBody = $error->getResponseBody();
+            if (str_contains($errBody, 'already exists') || str_contains($errBody, '6000')) {
+                Log::warning('QuickBooks: Item creation conflict caught. Fetching existing item ID for: ' . $cleanName);
+                $retryExisting = $dataService->Query("SELECT * FROM Item WHERE Name = '{$escapedItemName}'");
+                if ($retryExisting && count($retryExisting) > 0) {
+                    return $retryExisting[0]->Id;
+                }
+            }
+            
             Log::error('QuickBooks: Failed to create Item: ' . $errBody);
             throw new \Exception('Failed to create Item in QuickBooks: ' . $errBody);
         }
