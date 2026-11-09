@@ -138,7 +138,7 @@ class HelcimController extends Controller
         }
     }
 
-    public function recordManual(Request $request)
+    public function recordManual(Request $request, \App\Services\QuickBooksService $qbService)
     {
         $request->validate([
             'lead_id'        => 'required|exists:leads,id', 
@@ -148,10 +148,10 @@ class HelcimController extends Controller
             'receipt'        => 'nullable|image|mimes:jpg,jpeg,png|max:2048'
         ]);
 
-        return DB::transaction(function () use ($request) {
+        return DB::transaction(function () use ($request, $qbService) {
             $lead = Lead::findOrFail($request->lead_id);
 
-            // Dynamic Invoice Number Generation (INV Hataya gaya)
+            // Dynamic Invoice Number Generation
             $invoiceNum = $this->generateInvoiceNumber($lead);
 
             $invoice = Invoice::create([
@@ -169,7 +169,7 @@ class HelcimController extends Controller
                 $receiptPath = $request->file('receipt')->store('receipts', 'public');
             }
 
-            $invoice->payments()->create([
+            $payment = $invoice->payments()->create([
                 'lead_id'        => $lead->id,
                 'amount'         => $request->amount,
                 'payment_method' => $request->payment_method,
@@ -178,6 +178,29 @@ class HelcimController extends Controller
                 'receipt_path'   => $receiptPath,
                 'internal_notes' => $request->internal_notes,
             ]);
+
+            // --- QUICKBOOKS SYNC (Invoice + Payment) ---
+            try {
+                Log::info('HelcimController: Starting QuickBooks sync for manual invoice: ' . $invoiceNum);
+                
+                // 1. Pehle lead aur quotes ke zariye QBO mein Invoice create karein
+                $qbResult = $qbService->syncLeadAndCreateInvoice($lead->load(['quotes.items']));
+                
+                if (isset($qbResult['success']) && $qbResult['success'] && isset($qbResult['qbo_invoice_id'])) {
+                    // Local invoice mein QBO ka ID save karein taake payment link ho sakay
+                    $invoice->update([
+                        'helcim_invoice_number' => $qbResult['qbo_invoice_id']
+                    ]);
+
+                    // 2. Phir payment ko QBO mein sync karein
+                    $qbService->syncPaymentToQuickBooks($invoice->fresh(), $payment);
+                    Log::info('HelcimController: QuickBooks sync completed successfully.');
+                } else {
+                    Log::error('HelcimController: QBO Invoice sync failed', ['result' => $qbResult]);
+                }
+            } catch (\Exception $e) {
+                Log::error('QB Manual Payment & Invoice Sync Exception: ' . $e->getMessage());
+            }
 
             if ($lead->gjob) {
                 $lead->gjob->activities()->create([
