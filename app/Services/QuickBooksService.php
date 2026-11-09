@@ -280,17 +280,41 @@ class QuickBooksService
     }
 
 
-    public function syncPaymentToQuickBooks(\App\Models\Invoice $localInvoice, \App\Models\Payment $payment)
+   public function syncPaymentToQuickBooks(\App\Models\Invoice $localInvoice, \App\Models\Payment $payment)
     {
+        Log::info('QuickBooks: syncPaymentToQuickBooks started.', [
+            'invoice_id' => $localInvoice->id,
+            'invoice_number' => $localInvoice->invoice_number,
+            'helcim_invoice_number (QBO ID)' => $localInvoice->helcim_invoice_number,
+            'payment_id' => $payment->id,
+            'amount' => $payment->amount
+        ]);
+
         $dataService = $this->getDataService();
-        if (!$dataService || empty($localInvoice->helcim_invoice_number)) {
-            // Agar QBO connected nahi hai ya QBO Invoice ID missing hai
+        if (!$dataService) {
+            Log::error('QuickBooks Payment Sync Aborted: DataService is null (Not connected).');
+            return;
+        }
+
+        if (empty($localInvoice->helcim_invoice_number)) {
+            Log::error('QuickBooks Payment Sync Aborted: helcim_invoice_number (QBO Invoice ID) is empty for invoice ID: ' . $localInvoice->id);
             return;
         }
 
         // QBO mein customer ID find karein ya lead se lein
         $lead = $localInvoice->lead;
-        $customerId = $this->getOrCreateCustomer($dataService, $lead);
+        if (!$lead) {
+            Log::error('QuickBooks Payment Sync Error: Lead not found for invoice ID: ' . $localInvoice->id);
+            return;
+        }
+
+        try {
+            $customerId = $this->getOrCreateCustomer($dataService, $lead);
+            Log::info('QuickBooks Payment Sync: Customer resolved with ID: ' . $customerId);
+        } catch (\Exception $e) {
+            Log::error('QuickBooks Payment Sync: Failed to resolve customer: ' . $e->getMessage());
+            return;
+        }
 
         $paymentPayload = [
             "TotalAmt" => $payment->amount,
@@ -314,14 +338,20 @@ class QuickBooksService
             $paymentPayload["TxnDate"] = date('Y-m-d', strtotime($payment->payment_date));
         }
 
+        Log::info('QuickBooks Payment Sync: Sending payment payload to QBO', $paymentPayload);
+
         $paymentObj = \QuickBooksOnline\API\Facades\Payment::create($paymentPayload);
         $resultingPayment = $dataService->Add($paymentObj);
         
         $payError = $dataService->getLastError();
         if ($payError) {
-            Log::error('QuickBooks Payment Sync Failed: ' . $payError->getResponseBody());
+            Log::error('QuickBooks Payment Sync Failed Response: ' . $payError->getResponseBody());
         } else {
-            Log::info('QuickBooks: Payment synced successfully. QBO Payment ID: ' . $resultingPayment->Id);
+            if ($resultingPayment) {
+                Log::info('QuickBooks: Payment synced successfully. QBO Payment ID: ' . $resultingPayment->Id);
+            } else {
+                Log::warning('QuickBooks: Payment sync returned null result without explicit error.');
+            }
         }
     }
 
