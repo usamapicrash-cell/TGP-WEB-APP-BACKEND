@@ -140,6 +140,9 @@ class HelcimController extends Controller
 
     public function recordManual(Request $request, \App\Services\QuickBooksService $qbService)
     {
+
+        Log::info('HelcimController: recordManualPayment hit!', $request->all());
+
         $request->validate([
             'lead_id'        => 'required|exists:leads,id', 
             'amount'         => 'required|numeric|min:0.01',
