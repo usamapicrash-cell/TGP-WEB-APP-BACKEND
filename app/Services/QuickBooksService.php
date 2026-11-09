@@ -279,6 +279,52 @@ class QuickBooksService
         return $created->Id;
     }
 
+
+    public function syncPaymentToQuickBooks(\App\Models\Invoice $localInvoice, \App\Models\Payment $payment)
+    {
+        $dataService = $this->getDataService();
+        if (!$dataService || empty($localInvoice->helcim_invoice_number)) {
+            // Agar QBO connected nahi hai ya QBO Invoice ID missing hai
+            return;
+        }
+
+        // QBO mein customer ID find karein ya lead se lein
+        $lead = $localInvoice->lead;
+        $customerId = $this->getOrCreateCustomer($dataService, $lead);
+
+        $paymentPayload = [
+            "TotalAmt" => $payment->amount,
+            "CustomerRef" => [
+                "value" => $customerId
+            ],
+            "Line" => [
+                [
+                    "Amount" => $payment->amount,
+                    "LinkedTxn" => [
+                        [
+                            "TxnId" => $localInvoice->helcim_invoice_number, // QBO Invoice ID
+                            "TxnType" => "Invoice"
+                        ]
+                    ]
+                ]
+            ]
+        ];
+
+        if (!empty($payment->payment_date)) {
+            $paymentPayload["TxnDate"] = date('Y-m-d', strtotime($payment->payment_date));
+        }
+
+        $paymentObj = \QuickBooksOnline\API\Facades\Payment::create($paymentPayload);
+        $resultingPayment = $dataService->Add($paymentObj);
+        
+        $payError = $dataService->getLastError();
+        if ($payError) {
+            Log::error('QuickBooks Payment Sync Failed: ' . $payError->getResponseBody());
+        } else {
+            Log::info('QuickBooks: Payment synced successfully. QBO Payment ID: ' . $resultingPayment->Id);
+        }
+    }
+
     private function getIncomeAccountRef($dataService)
     {
         $accounts = $dataService->Query("SELECT * FROM Account WHERE AccountType='Income' MAXRESULTS 1");

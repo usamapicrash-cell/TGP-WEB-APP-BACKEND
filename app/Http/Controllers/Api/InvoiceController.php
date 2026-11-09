@@ -31,30 +31,27 @@ class InvoiceController extends Controller
     /**
      * Manual Payment record karne ka method
      */
-    public function recordManualPayment(Request $request)
+    public function recordManualPayment(Request $request, \App\Services\QuickBooksService $qbService)
     {
         $request->validate([
             'invoice_id'     => 'required|exists:invoices,id',
             'amount'         => 'required|numeric|min:0.01',
             'payment_method' => 'required|string|in:Bank Transfer,Cash,Cheque,Other',
             'payment_date'   => 'required|date',
-            'transaction_id' => 'nullable|string|max:100', // Bank reference number
-            'receipt'        => 'nullable|image|mimes:jpeg,png,jpg,pdf|max:2048', // 2MB limit
+            'transaction_id' => 'nullable|string|max:100',
+            'receipt'        => 'nullable|image|mimes:jpeg,png,jpg,pdf|max:2048',
             'internal_notes' => 'nullable|string'
         ]);
 
-        return DB::transaction(function () use ($request) {
+        return DB::transaction(function () use ($request, $qbService) {
             $invoice = Invoice::findOrFail($request->invoice_id);
             $lead = $invoice->lead;
 
-            // 1. Handle Receipt Upload (Bank Slip)
             $path = null;
             if ($request->hasFile('receipt')) {
-                // public storage mein 'payments/slips' folder mein save hoga
                 $path = $request->file('receipt')->store('payments/slips', 'public');
             }
 
-            // 2. Create Payment Record
             $payment = Payment::create([
                 'invoice_id'     => $invoice->id,
                 'lead_id'        => $invoice->lead_id,
@@ -66,10 +63,8 @@ class InvoiceController extends Controller
                 'internal_notes' => $request->internal_notes,
             ]);
 
-            // 3. Update Invoice Paid Amount and Status
             $invoice->increment('paid_amount', $request->amount);
             
-            // Status update logic
             $totalPaid = $invoice->paid_amount;
             $totalAmount = $invoice->total_amount;
 
@@ -79,7 +74,14 @@ class InvoiceController extends Controller
                 $invoice->update(['status' => 'PARTIAL']);
             }
 
-            // 4. Activity Log (Lead/GJob History)
+            // --- QUICKBOOKS PAYMENT SYNC ---
+            try {
+                // Agar invoice ke pas QBO ID hai, toh QBO mein payment record bhejo
+                $qbService->syncPaymentToQuickBooks($invoice, $payment);
+            } catch (\Exception $e) {
+                Log::error('QB Manual Payment Sync Exception: ' . $e->getMessage());
+            }
+
             if ($lead && $lead->gjob) {
                 $lead->gjob->activities()->create([
                     'user_id'     => Auth::id(),

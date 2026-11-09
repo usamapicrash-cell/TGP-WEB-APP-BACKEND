@@ -361,13 +361,21 @@ class HelcimController extends Controller
                     'helcim_invoice_number' => $helcimInvNum ?? $invoice->helcim_invoice_number
                 ]);
 
-                $invoice->payments()->create([
+                $payment = $invoice->payments()->create([
                     'lead_id' => $invoice->lead_id,
                     'amount' => $amount,
                     'payment_method' => 'Helcim',
                     'transaction_id' => $transactionId,
                     'payment_date' => now(),
                 ]);
+
+                // --- QUICKBOOKS HELCIM PAYMENT SYNC ---
+                try {
+                    $qbService = new \App\Services\QuickBooksService();
+                    $qbService->syncPaymentToQuickBooks($invoice, $payment);
+                } catch (\Exception $e) {
+                    Log::error('QB Helcim Payment Sync Exception: ' . $e->getMessage());
+                }
             });
 
             try {
