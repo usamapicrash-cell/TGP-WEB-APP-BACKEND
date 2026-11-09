@@ -187,7 +187,7 @@ class HelcimController extends Controller
                 Log::info('HelcimController: Starting QuickBooks sync for manual invoice: ' . $invoiceNum);
                 
                 // 1. Pehle lead aur quotes ke zariye QBO mein Invoice create karein
-                $qbResult = $qbService->syncLeadAndCreateInvoice($lead->load(['quotes.items']), $invoice);
+                // $qbResult = $qbService->syncLeadAndCreateInvoice($lead->load(['quotes.items']), $invoice);
                 
                 if (isset($qbResult['success']) && $qbResult['success'] && isset($qbResult['qbo_invoice_id'])) {
                     // Local invoice mein QBO ka ID save karein taake payment link ho sakay
@@ -196,7 +196,7 @@ class HelcimController extends Controller
                     ]);
 
                     // 2. Phir payment ko QBO mein sync karein
-                    $qbService->syncPaymentToQuickBooks($invoice->fresh(), $payment);
+                    // $qbService->syncPaymentToQuickBooks($invoice->fresh(), $payment);
                     Log::info('HelcimController: QuickBooks sync completed successfully.');
                 } else {
                     Log::error('HelcimController: QBO Invoice sync failed', ['result' => $qbResult]);
@@ -396,12 +396,12 @@ class HelcimController extends Controller
                 ]);
 
                 // --- QUICKBOOKS HELCIM PAYMENT SYNC ---
-                try {
-                    $qbService = new \App\Services\QuickBooksService();
-                    $qbService->syncPaymentToQuickBooks($invoice, $payment);
-                } catch (\Exception $e) {
-                    Log::error('QB Helcim Payment Sync Exception: ' . $e->getMessage());
-                }
+                // try {
+                //     $qbService = new \App\Services\QuickBooksService();
+                //     $qbService->syncPaymentToQuickBooks($invoice, $payment);
+                // } catch (\Exception $e) {
+                //     Log::error('QB Helcim Payment Sync Exception: ' . $e->getMessage());
+                // }
             });
 
             try {
