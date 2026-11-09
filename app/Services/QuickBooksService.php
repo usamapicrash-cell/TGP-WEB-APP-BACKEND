@@ -6,8 +6,10 @@ use QuickBooksOnline\API\DataService\DataService;
 use QuickBooksOnline\API\Facades\Customer;
 use QuickBooksOnline\API\Facades\Invoice as QBOInvoice;
 use QuickBooksOnline\API\Facades\Item as QBOItem;
+use QuickBooksOnline\API\Facades\Payment as QBOPayment;
 use Illuminate\Support\Facades\DB;
 use App\Models\Lead;
+use App\Models\Payment;
 use App\Models\Invoice as LocalInvoice;
 
 class QuickBooksService
@@ -95,23 +97,54 @@ class QuickBooksService
             return ['success' => false, 'message' => $error->getResponseBody()];
         }
 
-        // // 5. Store / Update Invoice in Local Database
-        // $localInvoice = LocalInvoice::updateOrCreate(
-        //     ['lead_id' => $lead->id],
-        //     [
-        //         'invoice_number' => $resultingInvoice->DocNumber ?? ('INV-' . $lead->order_no),
-        //         'helcim_invoice_number' => $resultingInvoice->Id, // Storing QBO ID for reference
-        //         'total_amount' => $quote->total_amount ?? $quote->items->sum('total'),
-        //         'paid_amount' => 0.00,
-        //         'status' => 'unpaid',
-        //         'due_date' => now()->addDays(30),
-        //     ]
-        // );
+        // 5. Sync Payments Associated with this Lead (agar koi payment pehle se record hui ho)
+        $payments = Payment::where('lead_id', $lead->id)->get();
+        $syncedPaymentsCount = 0;
+
+        foreach ($payments as $payment) {
+            try {
+                $paymentPayload = [
+                    "TotalAmt" => $payment->amount,
+                    "CustomerRef" => [
+                        "value" => $customerId
+                    ],
+                    "Line" => [
+                        [
+                            "Amount" => $payment->amount,
+                            "LinkedTxn" => [
+                                [
+                                    "TxnId" => $resultingInvoice->Id,
+                                    "TxnType" => "Invoice"
+                                ]
+                            ]
+                        ]
+                    ]
+                ];
+
+                if (!empty($payment->payment_date)) {
+                    $paymentPayload["TxnDate"] = date('Y-m-d', strtotime($payment->payment_date));
+                }
+
+                $paymentObj = QBOPayment::create($paymentPayload);
+                $resultingPayment = $dataService->Add($paymentObj);
+                
+                $payError = $dataService->getLastError();
+                if (!$payError && $resultingPayment) {
+                    $syncedPaymentsCount++;
+                } else {
+                    \Log::error('QuickBooks Payment Sync Failed for Payment ID: ' . $payment->id, [
+                        'response' => $payError ? $payError->getResponseBody() : 'Unknown error'
+                    ]);
+                }
+            } catch (\Exception $e) {
+                \Log::error('QuickBooks Payment Sync Exception: ' . $e->getMessage());
+            }
+        }
 
         return [
             'success' => true,
             'qbo_invoice_id' => $resultingInvoice->Id,
-            // 'local_invoice' => $localInvoice
+            'synced_payments_count' => $syncedPaymentsCount
         ];
     }
 
@@ -167,13 +200,11 @@ class QuickBooksService
 
         // 4. Handle Duplicate Error (Code 6240 - Vendor/Other Name Conflict or Soft-Deleted Name)
         if (str_contains($xmlError, '6240')) {
-            // Append explicit unique reference with microtime timestamp to eliminate collision
             $uniqueRef = !empty($lead->order_no) ? $lead->order_no : 'ID-' . ($lead->id ?? time());
             $uniqueDisplayName = "{$displayName} ({$uniqueRef}-" . substr(md5(microtime()), 0, 4) . ")";
 
             $customerPayload['DisplayName'] = $uniqueDisplayName;
 
-            // Re-instantiate SDK Object
             $retryCustomerObj = Customer::create($customerPayload);
             $resultingCustomerObj = $dataService->Add($retryCustomerObj);
 
