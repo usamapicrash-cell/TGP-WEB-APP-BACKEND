@@ -187,7 +187,7 @@ class HelcimController extends Controller
                 Log::info('HelcimController: Starting QuickBooks sync for manual invoice: ' . $invoiceNum);
                 
                 // 1. Pehle lead aur quotes ke zariye QBO mein Invoice create karein
-                $qbResult = $qbService->syncLeadAndCreateInvoice($lead->load(['quotes.items']));
+                $qbResult = $qbService->syncLeadAndCreateInvoice($lead->load(['quotes.items']), $invoice);
                 
                 if (isset($qbResult['success']) && $qbResult['success'] && isset($qbResult['qbo_invoice_id'])) {
                     // Local invoice mein QBO ka ID save karein taake payment link ho sakay

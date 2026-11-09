@@ -57,7 +57,7 @@ class QuickBooksService
         return $dataService;
     }
 
-    public function syncLeadAndCreateInvoice(Lead $lead)
+    public function syncLeadAndCreateInvoice(Lead $lead, ?LocalInvoice $localInvoice = null)
     {
         Log::info('QuickBooks: syncLeadAndCreateInvoice started for Lead ID: ' . $lead->id, [
             'client_name' => $lead->client_name,
@@ -106,8 +106,9 @@ class QuickBooksService
             ];
         }
 
-        // 4. Create Invoice in QBO (Using Lead order_no as DocNumber)
-        $docNumber = 'INV-' . ($lead->order_no ?? time());
+        // 4. Create Invoice in QBO (Using unique local invoice number as DocNumber)
+        $invoiceIdentifier = $localInvoice ? $localInvoice->invoice_number : ($lead->order_no ?? time());
+        $docNumber = 'INV-' . $invoiceIdentifier;
         Log::info('QuickBooks: Creating invoice with DocNumber: ' . $docNumber);
 
         $invoiceObj = QBOInvoice::create([
@@ -128,8 +129,8 @@ class QuickBooksService
 
         Log::info('QuickBooks: Invoice created successfully with QBO ID: ' . $resultingInvoice->Id);
 
-        // 5. Sync Payments Associated with this Lead (Auto calculates remaining balance in QBO)
-        $payments = Payment::where('lead_id', $lead->id)->get();
+        // 5. Sync Payments Associated with this Lead/Invoice
+        $payments = $localInvoice ? $localInvoice->payments : Payment::where('lead_id', $lead->id)->get();
         Log::info('QuickBooks: Found local payments to sync count: ' . $payments->count());
         $syncedPaymentsCount = 0;
 
