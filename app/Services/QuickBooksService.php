@@ -25,8 +25,6 @@ class QuickBooksService
             return null;
         }
 
-        Log::info('QuickBooks: Token found for Realm ID: ' . $tokenData->realm_id);
-
         $dataService = DataService::Configure([
             'auth_mode' => 'oauth2',
             'ClientID' => config('services.quickbooks.client_id'),
@@ -68,7 +66,7 @@ class QuickBooksService
 
         $dataService = $this->getDataService();
         if (!$dataService) {
-            Log::error('QuickBooks: syncLeadAndCreateInvoice aborted - DataService is null (Not connected).');
+            Log::error('QuickBooks: syncLeadAndCreateInvoice aborted - DataService is null.');
             return ['success' => false, 'message' => 'QuickBooks not connected'];
         }
 
@@ -77,7 +75,7 @@ class QuickBooksService
             $customerId = $this->getOrCreateCustomer($dataService, $lead);
             Log::info('QuickBooks: Customer resolved with ID: ' . $customerId);
         } catch (\Exception $e) {
-            Log::error('QuickBooks: Customer resolution failed with exception: ' . $e->getMessage());
+            Log::error('QuickBooks: Customer resolution failed: ' . $e->getMessage());
             return ['success' => false, 'message' => $e->getMessage()];
         }
 
@@ -92,7 +90,6 @@ class QuickBooksService
         // 3. Prepare Line Items for QBO Invoice
         $lineItems = [];
         $incomeAccountRef = $this->getIncomeAccountRef($dataService);
-        Log::info('QuickBooks: Income Account Ref resolved to: ' . $incomeAccountRef);
 
         foreach ($quote->items as $item) {
             $itemId = $this->getOrCreateItem($dataService, $item->description, $item->unit_price, $incomeAccountRef);
@@ -109,7 +106,7 @@ class QuickBooksService
             ];
         }
 
-        // 4. Create Invoice in QBO
+        // 4. Create Invoice in QBO (Using Lead order_no as DocNumber)
         $docNumber = 'INV-' . ($lead->order_no ?? time());
         Log::info('QuickBooks: Creating invoice with DocNumber: ' . $docNumber);
 
@@ -131,7 +128,7 @@ class QuickBooksService
 
         Log::info('QuickBooks: Invoice created successfully with QBO ID: ' . $resultingInvoice->Id);
 
-        // 5. Sync Payments Associated with this Lead
+        // 5. Sync Payments Associated with this Lead (Auto calculates remaining balance in QBO)
         $payments = Payment::where('lead_id', $lead->id)->get();
         Log::info('QuickBooks: Found local payments to sync count: ' . $payments->count());
         $syncedPaymentsCount = 0;
@@ -188,26 +185,20 @@ class QuickBooksService
 
     public function getOrCreateCustomer($dataService, Lead $lead)
     {
-        $displayName = trim($lead->client_name);
+        $baseName = trim($lead->client_name);
+        $uniqueRef = !empty($lead->order_no) ? $lead->order_no : ($lead->id ?? time());
+        $displayName = "{$baseName} ({$uniqueRef})";
+
         Log::info('QuickBooks: getOrCreateCustomer checking for DisplayName: "' . $displayName . '"');
 
-        if (empty($displayName)) {
-            Log::error('QuickBooks: Client name is empty for lead ID: ' . $lead->id);
-            throw new \Exception('Client name is required for QuickBooks customer creation.');
-        }
-
         $escapedName = str_replace("'", "\'", $displayName);
-
-        // 1. Check if Customer already exists
         $existingCustomers = $dataService->Query("SELECT * FROM Customer WHERE DisplayName = '{$escapedName}'");
 
         if (!empty($existingCustomers)) {
             $customer = $existingCustomers[0];
             Log::info('QuickBooks: Customer already exists with ID: ' . $customer->Id);
             
-            // Reactivate soft-deleted customer if inactive
             if (isset($customer->Active) && ($customer->Active === 'false' || $customer->Active === false)) {
-                Log::info('QuickBooks: Customer was inactive, reactivating ID: ' . $customer->Id);
                 $customer->Active = 'true';
                 $updated = $dataService->Update($customer);
                 return $updated ? $updated->Id : $customer->Id;
@@ -216,11 +207,10 @@ class QuickBooksService
             return $customer->Id;
         }
 
-        Log::info('QuickBooks: Customer not found. Creating new customer for: ' . $displayName);
+        Log::info('QuickBooks: Customer not found. Creating new customer: ' . $displayName);
 
-        // 2. Base Customer Payload
         $customerPayload = [
-            'GivenName'        => $lead->first_name ?? $displayName,
+            'GivenName'        => $lead->first_name ?? $baseName,
             'FamilyName'       => $lead->last_name ?? '',
             'DisplayName'      => $displayName,
             'PrimaryEmailAddr' => [
@@ -231,63 +221,48 @@ class QuickBooksService
             ]
         ];
 
-        // 3. Attempt Initial Creation
         $customerObj = Customer::create($customerPayload);
         $resultingCustomerObj = $dataService->Add($customerObj);
         $error = $dataService->getLastError();
 
-        if (!$error && $resultingCustomerObj) {
-            Log::info('QuickBooks: Customer created successfully with ID: ' . $resultingCustomerObj->Id);
-            return $resultingCustomerObj->Id;
+        if ($error || !$resultingCustomerObj) {
+            $xmlError = $error ? $error->getResponseBody() : 'Null response';
+            Log::error('QuickBooks Customer Creation Failed', ['responseBody' => $xmlError]);
+            throw new \Exception('QuickBooks Error: ' . $xmlError);
         }
 
-        $xmlError = $error ? $error->getResponseBody() : '';
-        Log::warning('QuickBooks: Initial customer creation failed. Error body: ' . $xmlError);
-
-        // 4. Handle Duplicate Error (Code 6240)
-        if (str_contains($xmlError, '6240')) {
-            Log::info('QuickBooks: Encountered 6240 duplicate name error. Retrying with unique suffix.');
-            $uniqueRef = !empty($lead->order_no) ? $lead->order_no : 'ID-' . ($lead->id ?? time());
-            $uniqueDisplayName = "{$displayName} ({$uniqueRef}-" . substr(md5(microtime()), 0, 4) . ")";
-
-            $customerPayload['DisplayName'] = $uniqueDisplayName;
-            Log::info('QuickBooks: Retry customer display name: ' . $uniqueDisplayName);
-
-            $retryCustomerObj = Customer::create($customerPayload);
-            $resultingCustomerObj = $dataService->Add($retryCustomerObj);
-
-            $retryError = $dataService->getLastError();
-            if ($retryError) {
-                Log::error('QuickBooks Customer Retry Failed', [
-                    'payload_name' => $uniqueDisplayName,
-                    'response'     => $retryError->getResponseBody()
-                ]);
-                throw new \Exception('QuickBooks Error after retry: ' . $retryError->getResponseBody());
-            }
-
-            Log::info('QuickBooks: Customer retry succeeded with ID: ' . $resultingCustomerObj->Id);
-            return $resultingCustomerObj->Id;
-        }
-
-        Log::error('QuickBooks Customer Creation Failed permanently', [
-            'responseBody' => $xmlError
-        ]);
-        throw new \Exception('QuickBooks Error: ' . $xmlError);
+        Log::info('QuickBooks: Customer created successfully with ID: ' . $resultingCustomerObj->Id);
+        return $resultingCustomerObj->Id;
     }
 
     private function getOrCreateItem($dataService, $name, $price, $incomeAccountRef)
     {
-        $cleanName = str_replace("'", "\'", substr($name, 0, 100));
+        $cleanName = trim(substr($name, 0, 100));
         Log::info('QuickBooks: getOrCreateItem checking item name: "' . $cleanName . '"');
 
-        $existing = $dataService->Query("SELECT * FROM Item WHERE Name = '{$cleanName}'");
+        $escapedItemName = str_replace("'", "\'", $cleanName);
+
+        // 1. Pehle exact match check karein (jo Category na ho)
+        $existing = $dataService->Query("SELECT * FROM Item WHERE Name = '{$escapedItemName}' AND Type != 'Category'");
 
         if ($existing && count($existing) > 0) {
-            Log::info('QuickBooks: Item already exists with ID: ' . $existing[0]->Id);
+            Log::info('QuickBooks: Valid Item already exists with ID: ' . $existing[0]->Id);
             return $existing[0]->Id;
         }
 
-        Log::info('QuickBooks: Item not found. Creating new item: ' . $cleanName);
+        // 2. Agar exact match nahi mila, toh QBO ke saare items fetch kar ke check karein (case-insensitive match ke liye)
+        $allItems = $dataService->Query("SELECT * FROM Item WHERE Type != 'Category' MAXRESULTS 1000");
+        if ($allItems) {
+            foreach ($allItems as $qbItem) {
+                if (strcasecmp(trim($qbItem->Name), $cleanName) === 0) {
+                    Log::info('QuickBooks: Found matching item via case-insensitive check with ID: ' . $qbItem->Id);
+                    return $qbItem->Id;
+                }
+            }
+        }
+
+        // 3. Agar waqai QBO mein mojood nahi hai, tabhi naya Service item banayein
+        Log::info('QuickBooks: Valid Item not found in QBO. Creating new Service item: ' . $cleanName);
         $itemObj = QBOItem::create([
             'Name'             => $cleanName,
             'Type'             => 'Service',
