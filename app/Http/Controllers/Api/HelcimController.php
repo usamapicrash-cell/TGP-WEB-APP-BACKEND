@@ -185,7 +185,7 @@ class HelcimController extends Controller
             // --- QUICKBOOKS SYNC (Sirf Payment Sync Hogi Existing Invoice Par) ---
             try {
                 Log::info('HelcimController: Syncing manual payment to QuickBooks for Invoice: ' . $invoiceNum);
-                $qbService->syncPaymentToQuickBooks($invoice, $payment);
+                $qbService->syncPaymentToQuickBooksa($invoice, $payment);
             } catch (\Exception $e) {
                 Log::error('QB Manual Payment Sync Exception: ' . $e->getMessage());
             }
