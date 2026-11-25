@@ -203,7 +203,7 @@ class HelcimController extends Controller
             //     }
             // } catch (\Exception $e) {
             //     Log::error('QB Manual Payment & Invoice Sync Exception: ' . $e->getMessage());
-            // }
+            // }a
 
             if ($lead->gjob) {
                 $lead->gjob->activities()->create([
