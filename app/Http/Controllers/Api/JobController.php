@@ -354,6 +354,12 @@ class JobController extends Controller
 
             $qbResult = $qbService->syncLeadAndCreateInvoice($lead->load(['quotes.items']));
 
+            if (!empty($qbResult['success']) && !empty($qbResult['qbo_invoice_id'])) {
+                $job->update([
+                    'qbo_invoice_id' => $qbResult['qbo_invoice_id'] // Ya $job->update(...)
+                ]);
+            }
+            
             $creatorName = $lead->creator->name ?? 'System';
             \App\Models\UserNotification::create([
                     'title'        => 'New Job Alert',

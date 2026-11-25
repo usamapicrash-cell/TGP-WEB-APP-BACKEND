@@ -11,7 +11,7 @@ class GJob extends Model
     protected $table = 'gjobs';
     protected $fillable = [
         'lead_id','job_number','glazier_id','title','description',
-        'status','work_status','progress','checklist_data','start_date','end_date'
+        'status','work_status','progress','checklist_data','start_date','end_date','qbo_invoice_id'
     ];
 
     protected $casts = [
