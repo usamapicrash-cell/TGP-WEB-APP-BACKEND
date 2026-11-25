@@ -297,40 +297,39 @@ class QuickBooksService
     }
 
 
-   public function syncPaymentToQuickBooks(\App\Models\Invoice $localInvoice, \App\Models\Payment $payment)
+    public function syncPaymentToQuickBooks(\App\Models\Invoice $localInvoice, \App\Models\Payment $payment)
     {
         Log::info('QuickBooks: syncPaymentToQuickBooks started.', [
-            'invoice_id' => $localInvoice->id,
-            'invoice_number' => $localInvoice->invoice_number,
-            'helcim_invoice_number (QBO ID)' => $localInvoice->helcim_invoice_number,
-            'payment_id' => $payment->id,
-            'amount' => $payment->amount
+            'local_invoice_id' => $localInvoice->id,
+            'payment_id'       => $payment->id,
+            'amount'           => $payment->amount
         ]);
+
+        $lead = $localInvoice->lead ?? \App\Models\Lead::find($payment->lead_id);
+        $gjob = $lead->gjob ?? null;
+
+        // Sirf tab sync karein jab job mojood ho, uska status 'job' ho, aur qbo_invoice_id set ho
+        if (!$gjob || $gjob->status !== 'job' || empty($gjob->qbo_invoice_id)) {
+            Log::info('QuickBooks Payment Sync Skipped: Job status is not "job" or qbo_invoice_id is missing.', [
+                'lead_id'        => $lead->id ?? null,
+                'gjob_id'        => $gjob->id ?? null,
+                'gjob_status'    => $gjob->status ?? null,
+                'qbo_invoice_id' => $gjob->qbo_invoice_id ?? null,
+            ]);
+            return false;
+        }
 
         $dataService = $this->getDataService();
         if (!$dataService) {
             Log::error('QuickBooks Payment Sync Aborted: DataService is null (Not connected).');
-            return;
-        }
-
-        if (empty($localInvoice->helcim_invoice_number)) {
-            Log::error('QuickBooks Payment Sync Aborted: helcim_invoice_number (QBO Invoice ID) is empty for invoice ID: ' . $localInvoice->id);
-            return;
-        }
-
-        // QBO mein customer ID find karein ya lead se lein
-        $lead = $localInvoice->lead;
-        if (!$lead) {
-            Log::error('QuickBooks Payment Sync Error: Lead not found for invoice ID: ' . $localInvoice->id);
-            return;
+            return false;
         }
 
         try {
             $customerId = $this->getOrCreateCustomer($dataService, $lead);
-            Log::info('QuickBooks Payment Sync: Customer resolved with ID: ' . $customerId);
         } catch (\Exception $e) {
             Log::error('QuickBooks Payment Sync: Failed to resolve customer: ' . $e->getMessage());
-            return;
+            return false;
         }
 
         $paymentPayload = [
@@ -343,7 +342,7 @@ class QuickBooksService
                     "Amount" => $payment->amount,
                     "LinkedTxn" => [
                         [
-                            "TxnId" => $localInvoice->helcim_invoice_number, // QBO Invoice ID
+                            "TxnId"   => $gjob->qbo_invoice_id,
                             "TxnType" => "Invoice"
                         ]
                     ]
@@ -359,17 +358,19 @@ class QuickBooksService
 
         $paymentObj = \QuickBooksOnline\API\Facades\Payment::create($paymentPayload);
         $resultingPayment = $dataService->Add($paymentObj);
-        
+
         $payError = $dataService->getLastError();
         if ($payError) {
             Log::error('QuickBooks Payment Sync Failed Response: ' . $payError->getResponseBody());
-        } else {
-            if ($resultingPayment) {
-                Log::info('QuickBooks: Payment synced successfully. QBO Payment ID: ' . $resultingPayment->Id);
-            } else {
-                Log::warning('QuickBooks: Payment sync returned null result without explicit error.');
-            }
+            return false;
         }
+
+        if ($resultingPayment) {
+            Log::info('QuickBooks: Payment synced successfully against Master Invoice #' . $gjob->qbo_invoice_id . '. QBO Payment ID: ' . $resultingPayment->Id);
+            return true;
+        }
+
+        return false;
     }
 
     private function getIncomeAccountRef($dataService)

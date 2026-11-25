@@ -182,28 +182,13 @@ class HelcimController extends Controller
                 'internal_notes' => $request->internal_notes,
             ]);
 
-            // --- QUICKBOOKS SYNC (Invoice + Payment) ---
-            // try {
-            //     Log::info('HelcimController: Starting QuickBooks sync for manual invoice: ' . $invoiceNum);
-                
-            //     // 1. Pehle lead aur quotes ke zariye QBO mein Invoice create karein
-            //     // $qbResult = $qbService->syncLeadAndCreateInvoice($lead->load(['quotes.items']), $invoice);
-                
-            //     if (isset($qbResult['success']) && $qbResult['success'] && isset($qbResult['qbo_invoice_id'])) {
-            //         // Local invoice mein QBO ka ID save karein taake payment link ho sakay
-            //         $invoice->update([
-            //             'helcim_invoice_number' => $qbResult['qbo_invoice_id']
-            //         ]);
-
-            //         // 2. Phir payment ko QBO mein sync karein
-            //         // $qbService->syncPaymentToQuickBooks($invoice->fresh(), $payment);
-            //         Log::info('HelcimController: QuickBooks sync completed successfully.');
-            //     } else {
-            //         Log::error('HelcimController: QBO Invoice sync failed', ['result' => $qbResult]);
-            //     }
-            // } catch (\Exception $e) {
-            //     Log::error('QB Manual Payment & Invoice Sync Exception: ' . $e->getMessage());
-            // }a
+            // --- QUICKBOOKS SYNC (Sirf Payment Sync Hogi Existing Invoice Par) ---
+            try {
+                Log::info('HelcimController: Syncing manual payment to QuickBooks for Invoice: ' . $invoiceNum);
+                $qbService->syncPaymentToQuickBooks($invoice, $payment);
+            } catch (\Exception $e) {
+                Log::error('QB Manual Payment Sync Exception: ' . $e->getMessage());
+            }
 
             if ($lead->gjob) {
                 $lead->gjob->activities()->create([
@@ -395,13 +380,12 @@ class HelcimController extends Controller
                     'payment_date' => now(),
                 ]);
 
-                // --- QUICKBOOKS HELCIM PAYMENT SYNC ---
-                // try {
-                //     $qbService = new \App\Services\QuickBooksService();
-                //     $qbService->syncPaymentToQuickBooks($invoice, $payment);
-                // } catch (\Exception $e) {
-                //     Log::error('QB Helcim Payment Sync Exception: ' . $e->getMessage());
-                // }
+                try {
+                    $qbService = new \App\Services\QuickBooksService();
+                    $qbService->syncPaymentToQuickBooks($invoice, $payment);
+                } catch (\Exception $e) {
+                    Log::error('QB Helcim Payment Sync Exception: ' . $e->getMessage());
+                }
             });
 
             try {
