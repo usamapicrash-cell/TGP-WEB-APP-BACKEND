@@ -183,27 +183,27 @@ class HelcimController extends Controller
             ]);
 
             // --- QUICKBOOKS SYNC (Invoice + Payment) ---
-            try {
-                Log::info('HelcimController: Starting QuickBooks sync for manual invoice: ' . $invoiceNum);
+            // try {
+            //     Log::info('HelcimController: Starting QuickBooks sync for manual invoice: ' . $invoiceNum);
                 
-                // 1. Pehle lead aur quotes ke zariye QBO mein Invoice create karein
-                // $qbResult = $qbService->syncLeadAndCreateInvoice($lead->load(['quotes.items']), $invoice);
+            //     // 1. Pehle lead aur quotes ke zariye QBO mein Invoice create karein
+            //     // $qbResult = $qbService->syncLeadAndCreateInvoice($lead->load(['quotes.items']), $invoice);
                 
-                if (isset($qbResult['success']) && $qbResult['success'] && isset($qbResult['qbo_invoice_id'])) {
-                    // Local invoice mein QBO ka ID save karein taake payment link ho sakay
-                    $invoice->update([
-                        'helcim_invoice_number' => $qbResult['qbo_invoice_id']
-                    ]);
+            //     if (isset($qbResult['success']) && $qbResult['success'] && isset($qbResult['qbo_invoice_id'])) {
+            //         // Local invoice mein QBO ka ID save karein taake payment link ho sakay
+            //         $invoice->update([
+            //             'helcim_invoice_number' => $qbResult['qbo_invoice_id']
+            //         ]);
 
-                    // 2. Phir payment ko QBO mein sync karein
-                    // $qbService->syncPaymentToQuickBooks($invoice->fresh(), $payment);
-                    Log::info('HelcimController: QuickBooks sync completed successfully.');
-                } else {
-                    Log::error('HelcimController: QBO Invoice sync failed', ['result' => $qbResult]);
-                }
-            } catch (\Exception $e) {
-                Log::error('QB Manual Payment & Invoice Sync Exception: ' . $e->getMessage());
-            }
+            //         // 2. Phir payment ko QBO mein sync karein
+            //         // $qbService->syncPaymentToQuickBooks($invoice->fresh(), $payment);
+            //         Log::info('HelcimController: QuickBooks sync completed successfully.');
+            //     } else {
+            //         Log::error('HelcimController: QBO Invoice sync failed', ['result' => $qbResult]);
+            //     }
+            // } catch (\Exception $e) {
+            //     Log::error('QB Manual Payment & Invoice Sync Exception: ' . $e->getMessage());
+            // }
 
             if ($lead->gjob) {
                 $lead->gjob->activities()->create([
